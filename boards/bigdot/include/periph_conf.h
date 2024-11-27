@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 LF Murillo <unixjazz@riseup.net>
+ * Copyright (C) 2024 LF Murillo <unixjazz@riseup.net>
  *
  * This file is subject to the terms and conditions of the GNU Lesser
  * General Public License v2.1. See the file LICENSE in the top level
@@ -35,7 +35,7 @@ extern "C" {
  * @brief Enable the internal DC/DC converter
  *        The board is equipped with the necessary inductor.
  */
-#define USE_VREG_BUCK       (0)
+#define USE_VREG_BUCK       (1)
 
 /**
  * @name    Timer peripheral configuration
@@ -92,6 +92,7 @@ static const uart_conf_t uart_config[] = {
 #define PWM_0_EN            1
 
 #if PWM_0_EN
+
 /* PWM0 channels */
 static const pwm_conf_chan_t pwm_chan0_config[] = {
     /* GPIO pin, MUX value, TCC channel */
@@ -131,7 +132,6 @@ static const spi_conf_t spi_config[] = {
         .tx_trigger = SERCOM3_DMAC_ID_TX,
         .rx_trigger = SERCOM3_DMAC_ID_RX,
 #endif
-
     }
 };
 
@@ -186,10 +186,10 @@ static const i2c_conf_t i2c_config[] = {
 
 static const adc_conf_chan_t adc_channels[] = {
     /* port, pin, muxpos */
-    { GPIO_PIN(PA, 2), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN2) },
-    { GPIO_PIN(PA, 3), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN3) },
-    { GPIO_PIN(PA, 4), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN4) },
-    { GPIO_PIN(PA, 5), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN5) },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA02 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA03 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA04 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA05 },
 };
 
 #define ADC_NUMOF                               ARRAY_SIZE(adc_channels)
