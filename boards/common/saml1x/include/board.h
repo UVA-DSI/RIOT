@@ -23,10 +23,19 @@
 #define BOARD_H
 
 #include "cpu.h"
+#include "periph/gpio.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @brief ATCA device type on SAML1x XPro boards
+ * @{
+ */
+#define ATCA_DEVTYPE        ATECC508A
+#define ATCA_PARAM_I2C      I2C_DEV(0)      /**< I2C bus device is connected to */
+/** @} */
 
 /**
  * @name    PORT selection macros
@@ -57,7 +66,6 @@ extern "C" {
  * @name SW0 (Button) pin definitions
  * @{
  */
-#define BTN0_PORT           _PORT->Group[PA]
 #define BTN0_PIN            GPIO_PIN(PA, 27)
 #define BTN0_MODE           GPIO_IN_PU
 /** @} */
@@ -68,11 +76,6 @@ extern "C" {
  */
 #define XTIMER_BACKOFF      (40)
 /** @} */
-
-/**
- * @brief   Initialize board specific hardware, including clock, LEDs and std-IO
- */
-void board_init(void);
 
 #ifdef __cplusplus
 }

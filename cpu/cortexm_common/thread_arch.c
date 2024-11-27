@@ -82,9 +82,6 @@
  * | R8   | <- lowest address (top of stack)
  * --------
  *
- * TODO: Implement handling of FPU registers for Cortex-M4 CPUs
- *
- *
  * @author      Stefan Pfeiffer <stefan.pfeiffer@fu-berlin.de>
  * @author      Hauke Petersen <hauke.petersen@fu-berlin.de>
  * @author      Joakim Nohlgård <joakim.nohlgard@eistec.se>
@@ -115,8 +112,6 @@ extern uint32_t _sstack;
 #else
 #define CPU_CORE_CORTEXM_FULL_THUMB 1
 #endif
-
-
 
 /**
  * @brief   Noticeable marker marking the beginning of a stack segment
@@ -226,7 +221,6 @@ char *thread_stack_init(thread_task_func_t task_func,
     }
 #endif
 
-
     /* The returned stack pointer will be aligned on a 32 bit boundary not on a
      * 64 bit boundary because of the odd number of registers above (8+9).
      * This is not a problem since the initial stack pointer upon process entry
@@ -262,10 +256,12 @@ int thread_isr_stack_usage(void)
 {
     uint32_t *ptr = &_sstack;
 
-    while(((*ptr) == STACK_CANARY_WORD) && (ptr < &_estack)) {
+    /* cppcheck-suppress comparePointers */
+    while (((*ptr) == STACK_CANARY_WORD) && (ptr < &_estack)) {
         ++ptr;
     }
 
+    /* cppcheck-suppress comparePointers */
     ptrdiff_t num_used_words = &_estack - ptr;
     return num_used_words * sizeof(*ptr);
 }
@@ -283,6 +279,16 @@ void *thread_isr_stack_start(void)
 
 void NORETURN cpu_switch_context_exit(void)
 {
+#ifdef MODULE_CORTEXM_FPU
+    /* An exiting thread won't need it's FPU state anymore, so clear it here.
+     * This is important, as `sched_task_exit` clears `sched_active_thread`,
+     * which in turn causes `isr_pendsv` to skip all FPU storing/restoring.
+     * That might lead to this thread's FPU lazy stacking / FPCAR to stay active.
+     */
+    __set_FPSCR(0);
+    __set_CONTROL(__get_CONTROL() & (~(CONTROL_FPCA_Msk)));
+#endif
+
     /* enable IRQs to make sure the PENDSV interrupt is reachable */
     irq_enable();
 
@@ -290,6 +296,13 @@ void NORETURN cpu_switch_context_exit(void)
 
     UNREACHABLE();
 }
+
+#ifdef MODULE_CORTEXM_STACK_LIMIT
+static void* __attribute__((used)) _get_new_stacksize(unsigned int *args) {
+    thread_t* t = (thread_t*) args;
+    return thread_get_stackstart(t);
+}
+#endif
 
 #if CPU_CORE_CORTEXM_FULL_THUMB
 void __attribute__((naked)) __attribute__((used)) isr_pendsv(void) {
@@ -331,8 +344,14 @@ void __attribute__((naked)) __attribute__((used)) isr_pendsv(void) {
 
     /* current thread context is now saved */
     "restore_context:                 \n" /* Label to skip thread state saving */
-
-    "ldr    r0, [r0]                  \n" /* load tcb->sp to register 1 */
+#ifdef MODULE_CORTEXM_STACK_LIMIT
+    "mov    r4, r0                    \n" /* Save content of R0 into R4*/
+    "bl _get_new_stacksize            \n" /* Get the new lower limit stack in R0 */
+    "msr    psplim, r0                \n" /* Set the PSP lower limit stack */
+    "ldr r0, [r4]                     \n" /* Load tcb->sp to register 0 */
+#else
+    "ldr    r0, [r0]                  \n" /* load tcb->sp to register 0 */
+#endif
     "ldmia  r0!, {r4-r11,lr}          \n" /* restore other registers, including lr */
 #ifdef MODULE_CORTEXM_FPU
     "tst    lr, #0x10                 \n"

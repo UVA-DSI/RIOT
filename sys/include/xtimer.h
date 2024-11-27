@@ -8,17 +8,30 @@
  */
 
 /**
- * @defgroup  sys_xtimer Timers
- * @ingroup   sys
- * @brief     Provides a high level timer module to register
- *            timers, get current system time, and let a thread sleep for
- *            a certain amount of time.
+ * @defgroup    sys_xtimer xtimer high level timer abstraction layer (deprecated)
+ * @ingroup     sys
+ * @brief       Provides a high level timer module to register
+ *              timers, get current system time, and let a thread sleep for
+ *              a certain amount of time.
  *
  * The implementation takes one low-level timer and multiplexes it.
  *
  * Insertion and removal of timers has O(n) complexity with (n) being the
  * number of active timers.  The reason for this is that multiplexing is
  * realized by next-first singly linked lists.
+ *
+ * @deprecated  xtimer has been deprecated in favor of the @ref sys_ztimer
+ * @note        With @ref sys_ztimer_xtimer_compat a compatibility wrapper is
+ *              provided that in the vast majority of cases can function as a
+ *              drop-in replacement. This compatibility wrapper is expected to
+ *              replace `xtimer` in the near future and ensure that code still
+ *              depending on the `xtimer` API continues to function.
+ * @details     Note that at least for long running timers, using
+ *              @ref sys_ztimer instead of the compatibility layer can yield
+ *              lower clock drift and lower power consumption compared to
+ *              using the compatibility layer. For details on how to achieve
+ *              lower clock drift and lower power consumption please consult the
+ *              @ref sys_ztimer documentation.
  *
  * @{
  * @file
@@ -31,6 +44,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "modules.h"
 #include "timex.h"
 #ifdef MODULE_CORE_MSG
 #include "msg.h"
@@ -39,12 +54,13 @@
 #include "sched.h"
 #include "rmutex.h"
 
-#ifdef MODULE_ZTIMER_XTIMER_COMPAT
-#include "ztimer/xtimer_compat.h"
+#if IS_USED(MODULE_ZTIMER64_XTIMER_COMPAT)
+#include "ztimer64/xtimer_compat.h" /* IWYU pragma: export */
+#elif IS_USED(MODULE_ZTIMER_XTIMER_COMPAT)
+#include "ztimer/xtimer_compat.h" /* IWYU pragma: export */
 #else
-
 #include "board.h"
-#ifndef MODULE_XTIMER_ON_ZTIMER
+#if !IS_USED(MODULE_XTIMER_ON_ZTIMER)
 #include "periph_conf.h"
 #endif
 
@@ -176,6 +192,10 @@ static inline void xtimer_usleep64(uint64_t microseconds);
 /**
  * @brief Stop execution of a thread for some time
  *
+ * @deprecated This function is deprecated as no XTIMER backend is currently
+ *             configured to run at more than 1 MHz, making nanoseconds accuracy
+ *             impossible to achieve.
+ *
  * Don't expect nanosecond accuracy. As of now, this function just calls
  * xtimer_usleep(nanoseconds/1000).
  *
@@ -305,6 +325,13 @@ static inline void xtimer_set64(xtimer_t *timer, uint64_t offset_us);
  * @param[in] timer ptr to timer structure that will be removed
  */
 void xtimer_remove(xtimer_t *timer);
+
+/**
+ * @brief state if an xtimer is currently set (waiting to be expired)
+ *
+ * @param[in] timer ptr to timer structure to work on
+ */
+static inline bool xtimer_is_set(const xtimer_t *timer);
 
 /**
  * @brief Convert microseconds to xtimer ticks

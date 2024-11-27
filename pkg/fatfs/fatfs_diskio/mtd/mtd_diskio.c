@@ -71,8 +71,18 @@ DSTATUS disk_initialize(BYTE pdrv)
         return STA_NOINIT;
     }
 
-    return (mtd_init(fatfs_mtd_devs[pdrv]) == 0) ? FATFS_DISKIO_DSTASTUS_OK
-                                                 : STA_NOINIT;
+    if (mtd_init(fatfs_mtd_devs[pdrv])) {
+        return STA_NOINIT;
+    }
+
+    uint32_t sector_size = fatfs_mtd_devs[pdrv]->page_size
+                         * fatfs_mtd_devs[pdrv]->pages_per_sector;
+    if (sector_size > FF_MAX_SS) {
+        assert(0);
+        return STA_NOINIT;
+    }
+
+    return FATFS_DISKIO_DSTASTUS_OK;
 }
 
 /**
@@ -120,24 +130,13 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count)
  */
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
 {
+    mtd_dev_t *mtd = fatfs_mtd_devs[pdrv];
     DEBUG("disk_write: %d, %lu, %d\n", pdrv, (long unsigned)sector, count);
-    if ((pdrv >= FF_VOLUMES) || (fatfs_mtd_devs[pdrv]->driver == NULL)) {
+    if ((pdrv >= FF_VOLUMES) || (mtd->driver == NULL)) {
         return RES_PARERR;
     }
 
-    /* erase memory before writing to it */
-    int res = mtd_erase_sector(fatfs_mtd_devs[pdrv], sector, count);
-
-    if (res != 0) {
-        return RES_ERROR; /* erase failed! */
-    }
-
-    uint32_t sector_size = fatfs_mtd_devs[pdrv]->page_size
-                         * fatfs_mtd_devs[pdrv]->pages_per_sector;
-
-    res = mtd_write_page_raw(fatfs_mtd_devs[pdrv], buff,
-                             sector, 0, count * sector_size);
-
+    int res = mtd_write_sector(mtd, buff, sector, count);
     if (res != 0) {
         return RES_ERROR;
     }
@@ -157,6 +156,8 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
  */
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
+    (void)buff;
+
     if ((pdrv >= FF_VOLUMES) || (fatfs_mtd_devs[pdrv]->driver == NULL)) {
         return RES_PARERR;
     }
@@ -215,9 +216,9 @@ DWORD get_fattime(void)
     uint8_t minute = time.tm_min;           /* bit 10:5 minute (0..59) */
     uint8_t second = (time.tm_sec / 2);     /* bit 4:0 second/2 (0..29) */
 
-    return year << FATFS_DISKIO_FATTIME_YEAR_OFFS |
-           month << FATFS_DISKIO_FATTIME_MON_OFFS |
-           day_of_month << FATFS_DISKIO_FATTIME_DAY_OFFS |
+    return (DWORD)year << FATFS_DISKIO_FATTIME_YEAR_OFFS |
+           (DWORD)month << FATFS_DISKIO_FATTIME_MON_OFFS |
+           (DWORD)day_of_month << FATFS_DISKIO_FATTIME_DAY_OFFS |
            hour << FATFS_DISKIO_FATTIME_HH_OFFS |
            minute << FATFS_DISKIO_FATTIME_MM_OFFS |
            second;

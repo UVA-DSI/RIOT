@@ -1,10 +1,12 @@
 .PHONY: info-objsize info-buildsizes info-build info-boards-supported \
         info-features-missing info-modules info-cpu \
         info-features-provided info-features-required \
-        info-features-used \
+        info-features-used info-kconfig-variables \
         info-debug-variable-% info-toolchains-supported \
         check-toolchain-supported \
         info-programmers-supported \
+        info-rust \
+        generate-Makefile.ci \
         #
 
 info-objsize:
@@ -37,7 +39,6 @@ info-build:
 	@echo ''
 	@echo 'BOARD:   $(BOARD)'
 	@echo 'CPU:     $(CPU)'
-	@echo 'MCU:     $(MCU)'
 	@echo ''
 	@echo 'RIOTBASE:    $(RIOTBASE)'
 	@echo 'BOARDDIR:    $(BOARDDIR)'
@@ -81,11 +82,15 @@ info-build:
 	@echo -e 'INCLUDES:$(patsubst %, \n\t%, $(INCLUDES))'
 	@echo ''
 	@echo 'CC:      $(CC)'
-	@echo -e 'CFLAGS:$(patsubst %, \n\t%, $(CFLAGS))'
+	@echo 'CFLAGS:$(patsubst %, \n\t%, $(subst ','"'"',$(CFLAGS)))'
 	@echo ''
 	@echo 'CXX:     $(CXX)'
 	@echo -e 'CXXUWFLAGS:$(patsubst %, \n\t%, $(CXXUWFLAGS))'
 	@echo -e 'CXXEXFLAGS:$(patsubst %, \n\t%, $(CXXEXFLAGS))'
+	@echo ''
+	@echo 'RUST_TARGET: $(RUST_TARGET)'
+	@echo 'CARGO_PROFILE: $(CARGO_PROFILE)'
+	@echo 'CARGO_OPTIONS: $(CARGO_OPTIONS)'
 	@echo ''
 	@echo 'LINK:    $(LINK)'
 	@echo -e 'LINKFLAGS:$(patsubst %, \n\t%, $(LINKFLAGS))'
@@ -98,6 +103,7 @@ info-build:
 	@echo ''
 	@echo 'TERMPROG:  $(TERMPROG)'
 	@echo 'TERMFLAGS: $(TERMFLAGS)'
+	@echo 'TERMENV:   $(TERMENV)'
 	@echo 'PORT:      $(PORT)'
 	@echo 'PROG_DEV:  $(PROG_DEV)'
 	@echo ''
@@ -110,6 +116,9 @@ info-build:
 	@echo ''
 	@echo 'DEBUGSERVER:       $(DEBUGSERVER)'
 	@echo 'DEBUGSERVER_FLAGS: $(DEBUGSERVER_FLAGS)'
+	@echo ''
+	@echo 'DEBUGCLIENT:       $(DEBUGCLIENT)'
+	@echo 'DEBUGCLIENT_FLAGS: $(DEBUGCLIENT_FLAGS)'
 	@echo ''
 	@echo 'RESET:       $(RESET)'
 	@echo 'RESET_FLAGS: $(RESET_FLAGS)'
@@ -143,7 +152,6 @@ info-build-json:
 	@echo '"APPDIR": "$(APPDIR)",'
 	@echo '"BOARD": "$(BOARD)",'
 	@echo '"CPU": "$(CPU)",'
-	@echo '"MCU": "$(MCU)",'
 	@echo '"RIOTBASE": "$(RIOTBASE)",'
 	@echo '"BOARDDIR": "$(BOARDDIR)",'
 	@echo '"RIOTCPU": "$(RIOTCPU)",'
@@ -221,6 +229,11 @@ info-features-missing:
 info-features-used:
 	@for i in $(FEATURES_USED); do echo $$i; done
 
+# This target prints all variables set via KConfig sorted alphabetically for
+# debugging.
+info-kconfig-variables:
+	@for i in $(sort $(filter CONFIG_%,$(.VARIABLES))); do echo $$i; done
+
 info-debug-variable-%:
 	@echo $($*)
 
@@ -232,3 +245,15 @@ check-toolchain-supported:
 
 info-programmers-supported:
 	@echo $(sort $(PROGRAMMERS_SUPPORTED))
+
+info-rust:
+	cargo version
+	c2rust --version
+	@echo "To use this setup of Rust in an IDE, add these command line arguments to the \`cargo check\` or \`rust-analyzer\`:"
+	@echo "    --profile $(CARGO_PROFILE) $(CARGO_OPTIONS)"
+	@echo "and export these environment variables:"
+	@echo "    CARGO_BUILD_TARGET=\"$(RUST_TARGET)\""
+	@echo "    RIOT_COMPILE_COMMANDS_JSON=\"$(CARGO_COMPILE_COMMANDS)\""
+	@echo "    RIOTBUILD_CONFIG_HEADER_C=\"$(RIOTBUILD_CONFIG_HEADER_C)\""
+	@echo "You can also call cargo related commands with \`make cargo-command CARGO_COMMAND=\"cargo check\"\`."
+	@echo "Beware that the way command line arguments are passed in is not consistent across cargo commands, so adding \`--profile $(CARGO_PROFILE)\` or other flags from above as part of CARGO_COMMAND may be necessary."

@@ -7,14 +7,15 @@
  */
 
 /**
- * @defgroup    net_dhcpv6_client_6lbr  DHCPv6 client for simple prefix
- *              delegation
+ * @defgroup    net_dhcpv6_client_simple_pd     gnrc_dhcpv6_client_simple_pd: DHCPv6 client for
+ *                                              simple prefix delegation
  * @ingroup     net_dhcpv6_client
- * @brief       DHCPv6 client bootstrapping for routers & 6LoWPAN border routers
+ * @brief       DHCPv6 client bootstrapping for prefix deligation with routers &
+ *              6LoWPAN border routers
  * @{
  *
  * @file
- * @brief   DHCPv6 client on 6LoWPAN border router definitions
+ * @brief   DHCPv6 client for simple prefix delegation definitions
  *
  * @author  Martine S. Lenders <m.lenders@fu-berlin.de>
  */
@@ -33,6 +34,25 @@ extern "C" {
  */
 #ifndef CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM
 #define CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM     (0)
+#endif
+
+/**
+ * @brief   Interface type of the upstream interface
+ *
+ * See @ref netdev_type_t for possible values
+ */
+#ifndef CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_TYPE
+#define CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_TYPE NETDEV_ANY
+#endif
+
+/**
+ * @brief   Interface index of the upstream interface
+ *
+ * If there are multiple interfaces of the same type, set this to select
+ * which one to use for the upstream.
+ */
+#ifndef CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_IDX
+#define CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_IDX (0)
 #endif
 
 /**

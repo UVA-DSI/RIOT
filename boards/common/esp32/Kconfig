@@ -6,7 +6,6 @@
 
 config BOARD_COMMON_ESP32
     bool
-    select HAS_PERIPH_GPIO
-    select HAS_PERIPH_GPIO_IRQ
-    select HAS_PERIPH_UART
-    select HAS_PERIPH_UART_MODECFG
+    select BOARD_COMMON_ESP32X
+
+source "$(RIOTBOARD)/common/esp32x/Kconfig"

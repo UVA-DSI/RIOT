@@ -1,10 +1,6 @@
-ifneq (,$(filter microbit,$(USEMODULE)))
-  USEMODULE += xtimer
-  USEMODULE += mineplex
-endif
+include $(RIOTBOARD)/common/microbit/Makefile.dep
+include $(RIOTBOARD)/common/nrf52/Makefile.dep
 
 ifneq (,$(filter saul_default,$(USEMODULE)))
-  USEMODULE += saul_gpio
+  USEMODULE += lsm303agr
 endif
-
-include $(RIOTBOARD)/common/nrf52/Makefile.dep

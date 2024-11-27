@@ -22,19 +22,28 @@
  * @}
  */
 
-#include <time.h>
+#include <err.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <err.h>
+#include <time.h>
 
-#include "periph/rtc.h"
 #include "cpu.h"
-#include "xtimer.h"
+#include "periph/rtc.h"
+#include "timex.h"
+#include "ztimer.h"
 
 #include "native_internal.h"
 
 #define ENABLE_DEBUG 0
 #include "debug.h"
+
+/**
+ * @brief   Time source of the native RTC
+ */
+#ifndef NATIVE_RTC_SOURCE
+#define NATIVE_RTC_SOURCE CLOCK_REALTIME
+#endif
 
 static int _native_rtc_initialized = 0;
 static int _native_rtc_powered = 0;
@@ -44,7 +53,7 @@ static rtc_alarm_cb_t _native_rtc_alarm_callback;
 
 static time_t _native_rtc_offset;
 
-static xtimer_t _native_rtc_timer;
+static ztimer_t _native_rtc_timer;
 
 static void _native_rtc_cb(void *arg) {
     if (_native_rtc_alarm_callback) {
@@ -70,7 +79,7 @@ void rtc_init(void)
 {
     DEBUG("rtc_init\n");
 
-    xtimer_remove(&_native_rtc_timer);
+    ztimer_remove(ZTIMER_MSEC, &_native_rtc_timer);
     _native_rtc_timer.callback = _native_rtc_cb;
 
     memset(&_native_rtc_alarm, 0, sizeof(_native_rtc_alarm));
@@ -108,7 +117,7 @@ void rtc_poweroff(void)
     }
 
     if (_native_rtc_alarm_callback) {
-        xtimer_remove(&_native_rtc_timer);
+        ztimer_remove(ZTIMER_MSEC, &_native_rtc_timer);
         memset(&_native_rtc_alarm, 0, sizeof(_native_rtc_alarm));
         _native_rtc_alarm_callback = NULL;
     }
@@ -140,9 +149,14 @@ int rtc_set_time(struct tm *ttime)
         warnx("rtc_set_time: out of time_t range");
         return -1;
     }
+
+    struct timespec tv;
+
     _native_syscall_enter();
-    _native_rtc_offset = tnew - time(NULL);
+    clock_gettime(NATIVE_RTC_SOURCE, &tv);
     _native_syscall_leave();
+
+    _native_rtc_offset = tnew - tv.tv_sec;
 
     if (_native_rtc_alarm_callback) {
         rtc_set_alarm(&_native_rtc_alarm, _native_rtc_alarm_callback,
@@ -152,9 +166,9 @@ int rtc_set_time(struct tm *ttime)
     return 0;
 }
 
-int rtc_get_time(struct tm *ttime)
+int rtc_get_time_ms(struct tm *ttime, uint16_t *ms)
 {
-    time_t t;
+    struct timespec tv;
 
     if (!_native_rtc_initialized) {
         warnx("rtc_get_time: not initialized");
@@ -166,9 +180,14 @@ int rtc_get_time(struct tm *ttime)
     }
 
     _native_syscall_enter();
-    t = time(NULL) + _native_rtc_offset;
+    clock_gettime(NATIVE_RTC_SOURCE, &tv);
+    tv.tv_sec += _native_rtc_offset;
 
-    if (localtime_r(&t, ttime) == NULL) {
+    if (ms) {
+        *ms = tv.tv_nsec / NS_PER_MS;
+    }
+
+    if (localtime_r(&tv.tv_sec, ttime) == NULL) {
         err(EXIT_FAILURE, "rtc_get_time: localtime_r");
     }
     _native_syscall_leave();
@@ -179,15 +198,20 @@ int rtc_get_time(struct tm *ttime)
     return 0;
 }
 
+int rtc_get_time(struct tm *ttime)
+{
+    return rtc_get_time_ms(ttime, NULL);
+}
+
 int rtc_set_alarm(struct tm *time, rtc_alarm_cb_t cb, void *arg)
 {
     if (!_native_rtc_initialized) {
         warnx("rtc_set_alarm: not initialized");
-        return -1;
+        return -EIO;
     }
     if (!_native_rtc_powered) {
         warnx("rtc_set_alarm: not powered on");
-        return -1;
+        return -EIO;
     }
 
     struct tm now;
@@ -202,7 +226,7 @@ int rtc_set_alarm(struct tm *time, rtc_alarm_cb_t cb, void *arg)
     time_t tdiff_secs = mktime(&intime) - mktime(&now);
 
     if (_native_rtc_alarm_callback) {
-        xtimer_remove(&_native_rtc_timer);
+        ztimer_remove(ZTIMER_MSEC, &_native_rtc_timer);
     }
 
     _native_rtc_alarm = *time;
@@ -210,7 +234,7 @@ int rtc_set_alarm(struct tm *time, rtc_alarm_cb_t cb, void *arg)
     _native_rtc_timer.arg = arg;
 
     if (tdiff_secs >= 0) {
-        xtimer_set64(&_native_rtc_timer, tdiff_secs * US_PER_SEC);
+        ztimer_set(ZTIMER_MSEC, &_native_rtc_timer, tdiff_secs * MS_PER_SEC);
     }
 
     return 0;
@@ -243,7 +267,7 @@ void rtc_clear_alarm(void)
         warnx("rtc_clear_alarm: not powered on");
     }
 
-    xtimer_remove(&_native_rtc_timer);
+    ztimer_remove(ZTIMER_MSEC, &_native_rtc_timer);
     memset(&_native_rtc_alarm, 0, sizeof(_native_rtc_alarm));
     _native_rtc_alarm_callback = NULL;
 }

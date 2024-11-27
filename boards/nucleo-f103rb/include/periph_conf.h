@@ -154,7 +154,7 @@ static const spi_conf_t spi_config[] = {
         .mosi_pin = GPIO_PIN(PORT_A, 7),
         .miso_pin = GPIO_PIN(PORT_A, 6),
         .sclk_pin = GPIO_PIN(PORT_A, 5),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .rccmask  = RCC_APB2ENR_SPI1EN,
         .apbbus   = APB2
     },
@@ -163,13 +163,29 @@ static const spi_conf_t spi_config[] = {
         .mosi_pin = GPIO_PIN(PORT_B, 15),
         .miso_pin = GPIO_PIN(PORT_B, 14),
         .sclk_pin = GPIO_PIN(PORT_B, 13),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .rccmask  = RCC_APB1ENR_SPI2EN,
         .apbbus   = APB1
     }
 };
 
 #define SPI_NUMOF           ARRAY_SIZE(spi_config)
+/** @} */
+
+/**
+ * @name   ADC configuration
+ * @{
+ */
+static const adc_conf_t adc_config[] = {
+    { .pin = GPIO_PIN(PORT_A, 0), .dev = 0, .chan = 0 },  /* ADC12_IN0 */
+    { .pin = GPIO_PIN(PORT_A, 1), .dev = 0, .chan = 1 },  /* ADC12_IN1 */
+    { .pin = GPIO_PIN(PORT_A, 4), .dev = 0, .chan = 4 },  /* ADC12_IN4 */
+    { .pin = GPIO_PIN(PORT_B, 0), .dev = 0, .chan = 8 },  /* ADC12_IN8 */
+    { .pin = GPIO_PIN(PORT_C, 1), .dev = 0, .chan = 11 }, /* ADC12_IN11 */
+    { .pin = GPIO_PIN(PORT_C, 0), .dev = 0, .chan = 10 }, /* ADC12_IN10 */
+};
+
+#define ADC_NUMOF           ARRAY_SIZE(adc_config)
 /** @} */
 
 #ifdef __cplusplus

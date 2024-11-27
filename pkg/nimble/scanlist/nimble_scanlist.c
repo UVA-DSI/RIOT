@@ -66,11 +66,17 @@ nimble_scanlist_entry_t *nimble_scanlist_get_by_pos(unsigned pos)
     return e;
 }
 
-void nimble_scanlist_update(uint8_t type, const ble_addr_t *addr, int8_t rssi,
+void nimble_scanlist_update(uint8_t type, const ble_addr_t *addr,
+                            const nimble_scanner_info_t *info,
                             const uint8_t *ad, size_t len)
 {
     assert(addr);
-    assert(len <= BLE_ADV_PDU_LEN);
+
+    /* Ignore bogus advertisements */
+    if (len > BLE_ADV_PDU_LEN) {
+        assert(0);
+        return;
+    }
 
     uint32_t now = (uint32_t)ztimer_now(ZTIMER_USEC);
     nimble_scanlist_entry_t *e = _find(addr);
@@ -86,10 +92,12 @@ void nimble_scanlist_update(uint8_t type, const ble_addr_t *addr, int8_t rssi,
             memcpy(e->ad, ad, len);
         }
         e->ad_len = len;
-        e->last_rssi = rssi;
+        e->last_rssi = info->rssi;
         e->first_update = now;
         e->adv_msg_cnt = 1;
         e->type = type;
+        e->phy_pri = info->phy_pri;
+        e->phy_sec = info->phy_sec;
         clist_rpush(&_list, (clist_node_t *)e);
     }
     else {

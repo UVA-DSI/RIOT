@@ -234,20 +234,20 @@ static const sam0_common_usb_config_t sam_usbdev_config[] = {
  */
 
 /* ADC Default values */
-#define ADC_PRESCALER                       ADC_CTRLA_PRESCALER_DIV128
+#define ADC_GCLK_SRC                        SAM0_GCLK_PERIPH    /**< clock used for ADC */
+#define ADC_PRESCALER                       ADC_CTRLA_PRESCALER_DIV8
 
 #define ADC_NEG_INPUT                       ADC_INPUTCTRL_MUXNEG(0x18u)
 #define ADC_REF_DEFAULT                     ADC_REFCTRL_REFSEL_INTVCC1
-#define ADC_DEV                             ADC0
 
 static const adc_conf_chan_t adc_channels[] = {
-    /* port, pin, muxpos */
-    {GPIO_PIN(PA, 2), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN0)},
-    {GPIO_PIN(PA, 5), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN5)},
-    {GPIO_PIN(PB, 8), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN2)},
-    {GPIO_PIN(PB, 9), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN3)},
-    {GPIO_PIN(PA, 4), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN4)},
-    {GPIO_PIN(PA, 6), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN6)},
+    /* port, pin, muxpos, dev */
+    { .inputctrl = ADC0_INPUTCTRL_MUXPOS_PA02, .dev = ADC0 },
+    { .inputctrl = ADC0_INPUTCTRL_MUXPOS_PA05, .dev = ADC0 },
+    { .inputctrl = ADC0_INPUTCTRL_MUXPOS_PB08, .dev = ADC0 },
+    { .inputctrl = ADC0_INPUTCTRL_MUXPOS_PB09, .dev = ADC0 },
+    { .inputctrl = ADC0_INPUTCTRL_MUXPOS_PA04, .dev = ADC0 },
+    { .inputctrl = ADC0_INPUTCTRL_MUXPOS_PA06, .dev = ADC0 },
 };
 
 #define ADC_NUMOF                           ARRAY_SIZE(adc_channels)

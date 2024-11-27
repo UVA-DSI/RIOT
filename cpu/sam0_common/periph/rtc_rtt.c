@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2015 Kaspar Schleiser <kaspar@schleiser.de>
  *               2015 FreshTemp, LLC.
+ *               2022 SSV Software Systems GmbH
  *
  * This file is subject to the terms and conditions of the GNU Lesser
  * General Public License v2.1. See the file LICENSE in the top level
@@ -20,11 +21,16 @@
  * @author      Baptiste Clenet <bapclenet@gmail.com>
  * @author      FWX <FWX@dialine.fr>
  * @author      Benjamin Valentin <benjamin.valentin@ml-pa.com>
+ * @author      Juergen Fitschen <me@jue.yt>
  *
  * @}
  */
 
+#include <errno.h>
 #include <stdint.h>
+#include <string.h>
+
+#include "pm_layered.h"
 #include "periph/rtc.h"
 #include "periph/rtt.h"
 #include "periph_conf.h"
@@ -61,11 +67,45 @@ typedef struct {
 static rtc_state_t alarm_cb;
 static rtc_state_t overflow_cb;
 
+#if (IS_ACTIVE(MODULE_PERIPH_RTC) || IS_ACTIVE(MODULE_PERIPH_RTT)) && \
+    IS_ACTIVE(MODULE_PM_LAYERED) && defined(SAM0_RTCRTT_PM_BLOCK)
+
+static bool _pm_alarm = false;
+#if IS_ACTIVE(MODULE_PERIPH_RTT)
+static bool _pm_overflow = false;
+#endif
+
+static inline void _pm_block(bool *flag)
+{
+    if (!*flag) {
+        pm_block(SAM0_RTCRTT_PM_BLOCK);
+        *flag = true;
+    }
+}
+
+static inline void _pm_unblock(bool *flag)
+{
+    if (*flag) {
+        pm_unblock(SAM0_RTCRTT_PM_BLOCK);
+        *flag = false;
+    }
+}
+
+#else
+
+/* Use empty stubs if pm is disabled */
+#define _pm_block(x)
+#define _pm_unblock(x)
+
+#endif
+
+#if IS_ACTIVE(MODULE_PERIPH_RTC)
 /* At 1Hz, RTC goes till 63 years (2^5, see 17.8.22 in datasheet)
  * struct tm younts the year since 1900, use the difference to RIOT_EPOCH
  * as an offset so the user can set years in RIOT_EPOCH + 63
  */
-static uint16_t reference_year = RIOT_EPOCH - 1900;
+static const uint16_t reference_year = RIOT_EPOCH - 1900;
+#endif
 
 static void _wait_syncbusy(void)
 {
@@ -73,13 +113,13 @@ static void _wait_syncbusy(void)
 #ifdef REG_RTC_MODE0_SYNCBUSY
     while (RTC->MODE0.SYNCBUSY.reg) {}
 #else
-    while (RTC->MODE0.STATUS.bit.SYNCBUSY) {}
+    while (RTC->MODE0.STATUS.reg & RTC_STATUS_SYNCBUSY) {}
 #endif
     } else {
 #ifdef REG_RTC_MODE2_SYNCBUSY
     while (RTC->MODE2.SYNCBUSY.reg) {}
 #else
-    while (RTC->MODE2.STATUS.bit.SYNCBUSY) {}
+    while (RTC->MODE2.STATUS.reg & RTC_STATUS_SYNCBUSY) {}
 #endif
     }
 }
@@ -89,8 +129,8 @@ static void _read_req(void)
 {
 #ifdef RTC_READREQ_RREQ
     RTC->MODE0.READREQ.reg = RTC_READREQ_RREQ;
-    _wait_syncbusy();
 #endif
+    _wait_syncbusy();
 }
 #endif
 
@@ -123,12 +163,24 @@ static void _poweroff(void)
 #endif
 }
 
-static inline void _rtc_set_enabled(bool on)
+MAYBE_UNUSED
+static inline void _rtc_enable(void)
 {
 #ifdef REG_RTC_MODE2_CTRLA
-    RTC->MODE2.CTRLA.bit.ENABLE = on;
+    RTC->MODE2.CTRLA.reg |= RTC_MODE2_CTRLA_ENABLE;
 #else
-    RTC->MODE2.CTRL.bit.ENABLE = on;
+    RTC->MODE2.CTRL.reg |= RTC_MODE2_CTRL_ENABLE;
+#endif
+    _wait_syncbusy();
+}
+
+MAYBE_UNUSED
+static inline void _rtc_disable(void)
+{
+#ifdef REG_RTC_MODE2_CTRLA
+    RTC->MODE2.CTRLA.reg &= ~RTC_MODE2_CTRLA_ENABLE;
+#else
+    RTC->MODE2.CTRL.reg &= ~RTC_MODE2_CTRL_ENABLE;
 #endif
     _wait_syncbusy();
 }
@@ -137,10 +189,10 @@ static inline void _rtt_reset(void)
 {
 #ifdef RTC_MODE0_CTRL_SWRST
     RTC->MODE0.CTRL.reg = RTC_MODE0_CTRL_SWRST;
-    while (RTC->MODE0.CTRL.bit.SWRST) {}
+    while (RTC->MODE0.CTRL.reg & RTC_MODE0_CTRL_SWRST) {}
 #else
     RTC->MODE0.CTRLA.reg = RTC_MODE2_CTRLA_SWRST;
-    while (RTC->MODE0.CTRLA.bit.SWRST) {}
+    while (RTC->MODE0.CTRLA.reg & RTC_MODE0_CTRLA_SWRST) {}
 #endif
 }
 
@@ -152,7 +204,7 @@ static void _rtc_clock_setup(void)
     GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN
                       | GCLK_CLKCTRL_GEN(SAM0_GCLK_1KHZ)
                       | GCLK_CLKCTRL_ID_RTC;
-    while (GCLK->STATUS.bit.SYNCBUSY) {}
+    while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY) {}
 }
 #endif /* MODULE_PERIPH_RTC */
 
@@ -163,7 +215,7 @@ static void _rtt_clock_setup(void)
     GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN
                       | GCLK_CLKCTRL_GEN(SAM0_GCLK_32KHZ)
                       | GCLK_CLKCTRL_ID_RTC;
-    while (GCLK->STATUS.bit.SYNCBUSY) {}
+    while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY) {}
 }
 #endif /* MODULE_PERIPH_RTT */
 
@@ -174,12 +226,12 @@ static void _rtc_clock_setup(void)
 {
     /* RTC source clock is external oscillator at 1kHz */
 #if EXTERNAL_OSC32_SOURCE
-    OSC32KCTRL->XOSC32K.bit.EN1K = 1;
+    OSC32KCTRL->XOSC32K.reg |= OSC32KCTRL_XOSC32K_EN1K;
     OSC32KCTRL->RTCCTRL.reg = OSC32KCTRL_RTCCTRL_RTCSEL_XOSC1K;
 
     /* RTC uses internal 32,768KHz Oscillator */
 #elif INTERNAL_OSC32_SOURCE
-    OSC32KCTRL->OSC32K.bit.EN1K = 1;
+    OSC32KCTRL->OSC32K.reg |= OSC32KCTRL_OSC32K_EN1K;
     OSC32KCTRL->RTCCTRL.reg = OSC32KCTRL_RTCCTRL_RTCSEL_OSC1K;
 
     /* RTC uses Ultra Low Power internal 32,768KHz Oscillator */
@@ -197,7 +249,7 @@ static void _rtt_clock_setup(void)
 {
     /* RTC source clock is external oscillator at 32kHz */
 #if EXTERNAL_OSC32_SOURCE
-    OSC32KCTRL->XOSC32K.bit.EN32K = 1;
+    OSC32KCTRL->XOSC32K.reg |= OSC32KCTRL_XOSC32K_EN32K;
     OSC32KCTRL->RTCCTRL.reg = OSC32KCTRL_RTCCTRL_RTCSEL_XOSC32K;
 
     /* RTC uses internal 32,768KHz Oscillator */
@@ -215,11 +267,73 @@ static void _rtt_clock_setup(void)
 #endif /* MODULE_PERIPH_RTT */
 #endif /* !CPU_COMMON_SAMD21 - Clock Setup */
 
+#ifdef MODULE_PERIPH_RTC_MEM
+/* first two GP registers are shared with COMP[0] / ALARM[0] */
+#ifdef RTC_MODE2_CTRLB_GP2EN
+#define RTC_GPR_START       (2)
+#else
+#define RTC_GPR_START       (0)
+#endif
+
+#define RTC_GPR_NUM_AVAIL   (RTC_GPR_NUM - RTC_GPR_START)
+#define RTC_MEM_SIZE        (RTC_GPR_NUM_AVAIL * sizeof(uint32_t))
+
+size_t rtc_mem_size(void)
+{
+    return RTC_MEM_SIZE;
+}
+
+static void _read_gp(uint32_t *dst)
+{
+    for (unsigned i = RTC_GPR_START; i < RTC_GPR_NUM; ++i) {
+        dst[i - RTC_GPR_START] = RTC->MODE0.GP[i].reg;
+    }
+}
+
+static void _write_gp(const uint32_t *src)
+{
+    for (unsigned i = RTC_GPR_START; i < RTC_GPR_NUM; ++i) {
+        _wait_syncbusy();
+        RTC->MODE0.GP[i].reg = src[i - RTC_GPR_START];
+    }
+}
+
+void rtc_mem_read(unsigned offset, void *data, size_t len)
+{
+    uint32_t tmp[RTC_GPR_NUM_AVAIL];
+
+    if (offset + len > RTC_MEM_SIZE) {
+        assert(0);
+        return;
+    }
+
+    _read_gp(tmp);
+    memcpy(data, ((uint8_t *)tmp) + offset, len);
+}
+
+void rtc_mem_write(unsigned offset, void *data, size_t len)
+{
+    uint32_t tmp[RTC_GPR_NUM_AVAIL];
+
+    if (offset + len > RTC_MEM_SIZE) {
+        assert(0);
+        return;
+    }
+
+    _read_gp(tmp);
+    memcpy(((uint8_t *)tmp) + offset, data, len);
+    _write_gp(tmp);
+}
+#endif /* MODULE_PERIPH_RTC_MEM */
+
 #ifdef MODULE_PERIPH_RTC
 static void _rtc_init(void)
 {
 #ifdef REG_RTC_MODE2_CTRLA
-    if (RTC->MODE2.CTRLA.bit.MODE == RTC_MODE2_CTRLA_MODE_CLOCK_Val) {
+    uint32_t mode = ((RTC->MODE2.CTRLA.reg & RTC_MODE2_CTRLA_MODE_Msk)
+                     >> RTC_MODE2_CTRLA_MODE_Pos);
+    /* skip reset if already in RTC mode */
+    if (mode == RTC_MODE2_CTRLA_MODE_CLOCK_Val) {
         return;
     }
 
@@ -229,8 +343,22 @@ static void _rtc_init(void)
     RTC->MODE2.CTRLA.reg = RTC_MODE2_CTRLA_PRESCALER_DIV1024   /* CLK_RTC_CNT = 1KHz / 1024 -> 1Hz */
                          | RTC_MODE2_CTRLA_CLOCKSYNC           /* Clock Read Synchronization Enable */
                          | RTC_MODE2_CTRLA_MODE_CLOCK;
+
+    /* RTC is all 0 after POR, avoid reading invalid date right after boot */
+    if (RTC->MODE2.CLOCK.reg == 0) {
+        RTC->MODE2.CLOCK.reg = RTC_MODE2_CLOCK_MONTH(1)
+                             | RTC_MODE2_CLOCK_DAY(1);
+    }
+
+#ifdef RTC_MODE2_CTRLB_GP2EN
+    /* RTC driver does not use COMP[1] or ALARM[1] */
+    /* Use second set of Compare registers as general purpose register */
+    RTC->MODE2.CTRLB.reg = RTC_MODE2_CTRLB_GP2EN;
+#endif
 #else
-    if (RTC->MODE2.CTRL.bit.MODE == RTC_MODE2_CTRL_MODE_CLOCK_Val) {
+    uint32_t mode = ((RTC->MODE2.CTRL.reg & RTC_MODE2_CTRL_MODE_Msk)
+                     >> RTC_MODE2_CTRL_MODE_Pos);
+    if (mode == RTC_MODE2_CTRL_MODE_CLOCK_Val) {
         return;
     }
 
@@ -243,6 +371,9 @@ static void _rtc_init(void)
 
 void rtc_init(void)
 {
+    /* clear previously set pm mode blockers */
+    _pm_unblock(&_pm_alarm);
+
     _poweroff();
     _rtc_clock_setup();
     _poweron();
@@ -252,14 +383,10 @@ void rtc_init(void)
     /* disable all interrupt sources */
     RTC->MODE2.INTENCLR.reg = RTC_MODE2_INTENCLR_MASK;
 
-    /* enable overflow interrupt */
-    RTC->MODE2.INTENSET.reg = RTC_MODE2_INTENSET_OVF;
-
     /* Clear interrupt flags */
-    RTC->MODE2.INTFLAG.reg = RTC_MODE2_INTFLAG_OVF
-                           | RTC_MODE2_INTFLAG_ALARM0;
+    RTC->MODE2.INTFLAG.reg = RTC_MODE2_INTFLAG_ALARM0;
 
-    _rtc_set_enabled(1);
+    _rtc_enable();
 
     NVIC_EnableIRQ(RTC_IRQn);
 }
@@ -268,22 +395,43 @@ void rtc_init(void)
 #ifdef MODULE_PERIPH_RTT
 void rtt_init(void)
 {
+    /* clear previously set pm mode blockers */
+    _pm_unblock(&_pm_alarm);
+    _pm_unblock(&_pm_overflow);
+
     _rtt_clock_setup();
     _poweron();
-    _rtt_reset();
 
-    /* set 32bit counting mode & enable the RTC */
-#ifdef REG_RTC_MODE0_CTRLA
-    RTC->MODE0.CTRLA.reg = RTC_MODE0_CTRLA_MODE(0)
-                         | RTC_MODE0_CTRLA_ENABLE
-                         | RTC_MODE0_CTRLA_COUNTSYNC
-                         | RTC_MODE0_PRESCALER;
-#else
-    RTC->MODE0.CTRL.reg = RTC_MODE0_CTRL_MODE(0)
-                        | RTC_MODE0_CTRL_ENABLE
-                        | RTC_MODE0_PRESCALER;
+#ifdef MODULE_PERIPH_RTC_MEM
+    uint32_t backup[RTC_GPR_NUM_AVAIL];
+    _read_gp(backup);
 #endif
-    _wait_syncbusy();
+
+    if (!cpu_woke_from_backup()) {
+        _rtt_reset();
+
+#ifdef MODULE_PERIPH_RTC_MEM
+#ifdef RTC_MODE2_CTRLB_GP2EN
+        /* RTC driver does not use COMP[1] or ALARM[1] */
+        /* Use second set of Compare registers as general purpose register */
+        RTC->MODE2.CTRLB.reg = RTC_MODE2_CTRLB_GP2EN;
+#endif
+        _write_gp(backup);
+#endif /* MODULE_PERIPH_RTC_MEM */
+
+        /* set 32bit counting mode & enable the RTC */
+#ifdef REG_RTC_MODE0_CTRLA
+        RTC->MODE0.CTRLA.reg = RTC_MODE0_CTRLA_MODE(0)
+                            | RTC_MODE0_CTRLA_ENABLE
+                            | RTC_MODE0_CTRLA_COUNTSYNC
+                            | RTC_MODE0_PRESCALER;
+#else
+        RTC->MODE0.CTRL.reg = RTC_MODE0_CTRL_MODE(0)
+                            | RTC_MODE0_CTRL_ENABLE
+                            | RTC_MODE0_PRESCALER;
+#endif
+        _wait_syncbusy();
+    }
 
     /* initially clear flag */
     RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_CMP0
@@ -312,9 +460,9 @@ static int _rtc_pin(gpio_t pin)
 
 static void _set_tampctrl(uint32_t reg)
 {
-    _rtc_set_enabled(0);
+    _rtc_disable();
     RTC->MODE0.TAMPCTRL.reg = reg;
-    _rtc_set_enabled(1);
+    _rtc_enable();
 }
 
 void rtc_tamper_init(void)
@@ -381,10 +529,10 @@ void rtc_tamper_enable(void)
         NVIC_DisableIRQ(RTC_IRQn);
 
         /* enable tamper detect as wake-up source */
-        RTC->MODE0.INTENSET.bit.TAMPER = 1;
+        RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_TAMPER;
 
         /* wait for first tamper event */
-        while (!RTC->MODE0.INTFLAG.bit.TAMPER && --timeout) {}
+        while (!(RTC->MODE0.INTFLAG.reg & RTC_MODE0_INTFLAG_TAMPER) && --timeout) {}
 
         /* clear tamper flag flag */
         RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_TAMPER;
@@ -393,7 +541,7 @@ void rtc_tamper_enable(void)
         NVIC_EnableIRQ(RTC_IRQn);
     } else {
         /* no spurious event on falling edge */
-        RTC->MODE0.INTENSET.bit.TAMPER = 1;
+        RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_TAMPER;
     }
 
     DEBUG("tamper enabled\n");
@@ -429,17 +577,18 @@ int rtc_get_alarm(struct tm *time)
     /* Read alarm register in one time */
     alarm.reg = RTC->MODE2.Mode2Alarm[0].ALARM.reg;
 
-    time->tm_year = alarm.bit.YEAR + reference_year;
+    time->tm_year = ((alarm.reg & RTC_MODE2_ALARM_YEAR_Msk) >> RTC_MODE2_ALARM_YEAR_Pos)
+                     + reference_year;
     if ((time->tm_year < reference_year) ||
         (time->tm_year > (reference_year + 63))) {
         return -1;
     }
 
-    time->tm_mon = alarm.bit.MONTH - 1;
-    time->tm_mday = alarm.bit.DAY;
-    time->tm_hour = alarm.bit.HOUR;
-    time->tm_min = alarm.bit.MINUTE;
-    time->tm_sec = alarm.bit.SECOND;
+    time->tm_mon = ((alarm.reg & RTC_MODE2_ALARM_MONTH_Msk) >> RTC_MODE2_ALARM_MONTH_Pos) - 1;
+    time->tm_mday = ((alarm.reg & RTC_MODE2_ALARM_DAY_Msk) >> RTC_MODE2_ALARM_DAY_Pos);
+    time->tm_hour = ((alarm.reg & RTC_MODE2_ALARM_HOUR_Msk) >> RTC_MODE2_ALARM_HOUR_Pos);
+    time->tm_min = ((alarm.reg & RTC_MODE2_ALARM_MINUTE_Msk) >> RTC_MODE2_ALARM_MINUTE_Pos);
+    time->tm_sec = ((alarm.reg & RTC_MODE2_ALARM_SECOND_Msk) >> RTC_MODE2_ALARM_SECOND_Pos);
 
     return 0;
 }
@@ -452,44 +601,56 @@ int rtc_get_time(struct tm *time)
     _read_req();
     clock.reg = RTC->MODE2.CLOCK.reg;
 
-    time->tm_year = clock.bit.YEAR + reference_year;
-
+    time->tm_year = ((clock.reg & RTC_MODE2_CLOCK_YEAR_Msk) >> RTC_MODE2_CLOCK_YEAR_Pos)
+                     + reference_year;
     if ((time->tm_year < reference_year) ||
         (time->tm_year > (reference_year + 63))) {
         return -1;
     }
 
-    time->tm_mon = clock.bit.MONTH - 1;
-    time->tm_mday = clock.bit.DAY;
-    time->tm_hour = clock.bit.HOUR;
-    time->tm_min = clock.bit.MINUTE;
-    time->tm_sec = clock.bit.SECOND;
+    time->tm_mon = ((clock.reg & RTC_MODE2_CLOCK_MONTH_Msk) >> RTC_MODE2_CLOCK_MONTH_Pos) - 1;
+    time->tm_mday = ((clock.reg & RTC_MODE2_CLOCK_DAY_Msk) >> RTC_MODE2_CLOCK_DAY_Pos);
+    time->tm_hour = ((clock.reg & RTC_MODE2_CLOCK_HOUR_Msk) >> RTC_MODE2_CLOCK_HOUR_Pos);
+    time->tm_min = ((clock.reg & RTC_MODE2_CLOCK_MINUTE_Msk) >> RTC_MODE2_CLOCK_MINUTE_Pos);
+    time->tm_sec = ((clock.reg & RTC_MODE2_CLOCK_SECOND_Msk) >> RTC_MODE2_CLOCK_SECOND_Pos);
     return 0;
+}
+
+static void _rtc_clear_alarm(void)
+{
+    /* disable alarm interrupt */
+    RTC->MODE2.INTENCLR.reg = RTC_MODE2_INTENCLR_ALARM0;
+}
+
+void rtc_clear_alarm(void)
+{
+    _rtc_clear_alarm();
+    _pm_unblock(&_pm_alarm);
 }
 
 int rtc_set_alarm(struct tm *time, rtc_alarm_cb_t cb, void *arg)
 {
     /* prevent old alarm from ringing */
-    rtc_clear_alarm();
+    _rtc_clear_alarm();
 
     /* normalize input */
     rtc_tm_normalize(time);
 
     if ((time->tm_year < reference_year) ||
         (time->tm_year > (reference_year + 63))) {
-        return -2;
-    }
-    else {
-        RTC->MODE2.Mode2Alarm[0].ALARM.reg = RTC_MODE2_ALARM_YEAR(time->tm_year - reference_year)
-                                           | RTC_MODE2_ALARM_MONTH(time->tm_mon + 1)
-                                           | RTC_MODE2_ALARM_DAY(time->tm_mday)
-                                           | RTC_MODE2_ALARM_HOUR(time->tm_hour)
-                                           | RTC_MODE2_ALARM_MINUTE(time->tm_min)
-                                           | RTC_MODE2_ALARM_SECOND(time->tm_sec);
-        RTC->MODE2.Mode2Alarm[0].MASK.reg = RTC_MODE2_MASK_SEL(6);
+        return -EINVAL;
     }
 
+    /* make sure that preceding changes have been applied */
     _wait_syncbusy();
+
+    RTC->MODE2.Mode2Alarm[0].ALARM.reg = RTC_MODE2_ALARM_YEAR(time->tm_year - reference_year)
+                                       | RTC_MODE2_ALARM_MONTH(time->tm_mon + 1)
+                                       | RTC_MODE2_ALARM_DAY(time->tm_mday)
+                                       | RTC_MODE2_ALARM_HOUR(time->tm_hour)
+                                       | RTC_MODE2_ALARM_MINUTE(time->tm_min)
+                                       | RTC_MODE2_ALARM_SECOND(time->tm_sec);
+    RTC->MODE2.Mode2Alarm[0].MASK.reg = RTC_MODE2_MASK_SEL(6);
 
     /* Enable IRQ */
     alarm_cb.cb  = cb;
@@ -498,6 +659,11 @@ int rtc_set_alarm(struct tm *time, rtc_alarm_cb_t cb, void *arg)
     /* enable alarm interrupt and clear flag */
     RTC->MODE2.INTFLAG.reg  = RTC_MODE2_INTFLAG_ALARM0;
     RTC->MODE2.INTENSET.reg = RTC_MODE2_INTENSET_ALARM0;
+
+    /* block power mode if callback function is present */
+    if (alarm_cb.cb) {
+        _pm_block(&_pm_alarm);
+    }
 
     return 0;
 }
@@ -524,12 +690,6 @@ int rtc_set_time(struct tm *time)
     return 0;
 }
 
-void rtc_clear_alarm(void)
-{
-    /* disable alarm interrupt */
-    RTC->MODE2.INTENCLR.reg = RTC_MODE2_INTENCLR_ALARM0;
-}
-
 void rtc_poweron(void)
 {
     _poweron();
@@ -553,16 +713,22 @@ void rtt_set_overflow_cb(rtt_cb_t cb, void *arg)
 
     /* enable overflow interrupt */
     RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_OVF;
+
+    /* block power mode if callback function is present */
+    if (overflow_cb.cb) {
+        _pm_block(&_pm_overflow);
+    }
 }
 void rtt_clear_overflow_cb(void)
 {
     /* disable overflow interrupt */
     RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_OVF;
+
+    _pm_unblock(&_pm_overflow);
 }
 
 uint32_t rtt_get_counter(void)
 {
-    _wait_syncbusy();
     _read_req();
     return RTC->MODE0.COUNT.reg;
 }
@@ -579,28 +745,41 @@ uint32_t rtt_get_alarm(void)
     return RTC->MODE0.COMP[0].reg;
 }
 
+static void _rtt_clear_alarm(void)
+{
+    /* disable compare interrupt */
+    RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_CMP0;
+}
+
+void rtt_clear_alarm(void)
+{
+    _rtt_clear_alarm();
+    _pm_unblock(&_pm_alarm);
+}
+
 void rtt_set_alarm(uint32_t alarm, rtt_cb_t cb, void *arg)
 {
     /* disable interrupt to avoid race */
-    rtt_clear_alarm();
+    _rtt_clear_alarm();
 
     /* setup callback */
     alarm_cb.cb  = cb;
     alarm_cb.arg = arg;
 
+    /* make sure that preceding changes have been applied */
+    _wait_syncbusy();
+
     /* set COMP register */
     RTC->MODE0.COMP[0].reg = alarm;
-    _wait_syncbusy();
 
     /* enable compare interrupt and clear flag */
     RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_CMP0;
     RTC->MODE0.INTENSET.reg = RTC_MODE0_INTENSET_CMP0;
-}
 
-void rtt_clear_alarm(void)
-{
-    /* disable compare interrupt */
-    RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_CMP0;
+    /* block power mode if callback function is present */
+    if (alarm_cb.cb) {
+        _pm_block(&_pm_alarm);
+    }
 }
 
 void rtt_poweron(void)
@@ -620,20 +799,13 @@ static void _isr_rtc(void)
         return;
     }
 
-    if (RTC->MODE2.INTFLAG.bit.ALARM0) {
+    if (RTC->MODE2.INTFLAG.reg & RTC_MODE2_INTFLAG_ALARM0) {
         /* clear flag */
         RTC->MODE2.INTFLAG.reg = RTC_MODE2_INTFLAG_ALARM0;
 
         if (alarm_cb.cb) {
             alarm_cb.cb(alarm_cb.arg);
         }
-    }
-    if (RTC->MODE2.INTFLAG.bit.OVF) {
-        /* clear flag */
-        RTC->MODE2.INTFLAG.reg = RTC_MODE2_INTFLAG_OVF;
-        /* At 1Hz, RTC goes till 63 years (2^5, see 17.8.22 in datasheet)
-        * Start RTC again with reference_year 64 years more (Be careful with alarm set) */
-        reference_year += 64;
     }
 }
 
@@ -643,18 +815,19 @@ static void _isr_rtt(void)
         return;
     }
 
-    if (RTC->MODE0.INTFLAG.bit.OVF) {
+    if (RTC->MODE0.INTFLAG.reg & RTC_MODE0_INTFLAG_OVF) {
         RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_OVF;
         if (overflow_cb.cb) {
             overflow_cb.cb(overflow_cb.arg);
         }
     }
-    if (RTC->MODE0.INTFLAG.bit.CMP0) {
+    if (RTC->MODE0.INTFLAG.reg & RTC_MODE0_INTFLAG_CMP0) {
         /* clear flag */
         RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_CMP0;
         /* disable interrupt */
         RTC->MODE0.INTENCLR.reg = RTC_MODE0_INTENCLR_CMP0;
         if (alarm_cb.cb) {
+            _pm_unblock(&_pm_alarm);
             alarm_cb.cb(alarm_cb.arg);
         }
     }
@@ -663,7 +836,7 @@ static void _isr_rtt(void)
 static void _isr_tamper(void)
 {
 #ifdef RTC_MODE0_INTFLAG_TAMPER
-    if (RTC->MODE0.INTFLAG.bit.TAMPER) {
+    if (RTC->MODE0.INTFLAG.reg & RTC_MODE0_INTFLAG_TAMPER) {
         RTC->MODE0.INTFLAG.reg = RTC_MODE0_INTFLAG_TAMPER;
         if (tamper_cb.cb) {
             tamper_cb.cb(tamper_cb.arg);

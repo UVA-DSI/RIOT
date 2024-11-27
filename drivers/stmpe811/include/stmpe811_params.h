@@ -19,6 +19,7 @@
 #ifndef STMPE811_PARAMS_H
 #define STMPE811_PARAMS_H
 
+#include "kernel_defines.h"
 #include "board.h"
 #include "stmpe811.h"
 #include "stmpe811_constants.h"
@@ -33,29 +34,59 @@ extern "C" {
  *
  * These default values are adapted for the @ref boards_stm32f429i-disc1 board
  */
+#if IS_USED(MODULE_STMPE811_SPI)
+/* SPI configuration */
+#ifndef STMPE811_PARAM_SPI_DEV
+#define STMPE811_PARAM_SPI_DEV        SPI_DEV(0)
+#endif
+#ifndef STMPE811_PARAM_CLK
+#define STMPE811_PARAM_CLK            SPI_CLK_1MHZ
+#endif
+#ifndef STMPE811_PARAM_CS
+#define STMPE811_PARAM_CS             GPIO_PIN(0, 0)
+#endif
+#else
+/* I2C configuration */
 #ifndef STMPE811_PARAM_I2C_DEV
 #define STMPE811_PARAM_I2C_DEV          I2C_DEV(0)
 #endif
 #ifndef STMPE811_PARAM_ADDR
 #define STMPE811_PARAM_ADDR             (STMPE811_I2C_ADDR_DEFAULT)
 #endif
+#endif
+
 #ifndef STMPE811_PARAM_INT_PIN
 #define STMPE811_PARAM_INT_PIN          GPIO_PIN(0, 15)
 #endif
 #ifndef STMPE811_PARAM_XMAX
-#define STMPE811_PARAM_XMAX             (240U)
+#define STMPE811_PARAM_XMAX             (320U)
 #endif
 #ifndef STMPE811_PARAM_YMAX
-#define STMPE811_PARAM_YMAX             (320U)
+#define STMPE811_PARAM_YMAX             (240U)
+#endif
+#ifndef STMPE811_PARAM_XYCONV
+#define STMPE811_PARAM_XYCONV           (STMPE811_MIRROR_X | STMPE811_MIRROR_Y | STMPE811_SWAP_XY)
 #endif
 
 #ifndef STMPE811_PARAMS
+#if IS_USED(MODULE_STMPE811_SPI)
+#define STMPE811_PARAMS                { .spi = STMPE811_PARAM_SPI_DEV,     \
+                                         .clk = STMPE811_PARAM_CLK,         \
+                                         .cs = STMPE811_PARAM_CS,           \
+                                         .int_pin = STMPE811_PARAM_INT_PIN, \
+                                         .xmax = STMPE811_PARAM_XMAX,       \
+                                         .ymax = STMPE811_PARAM_YMAX,       \
+                                         .xyconv = STMPE811_PARAM_XYCONV,   \
+                                       }
+#else
 #define STMPE811_PARAMS                { .i2c = STMPE811_PARAM_I2C_DEV,     \
                                          .addr = STMPE811_PARAM_ADDR,       \
                                          .int_pin = STMPE811_PARAM_INT_PIN, \
                                          .xmax = STMPE811_PARAM_XMAX,       \
                                          .ymax = STMPE811_PARAM_YMAX,       \
-                                         }
+                                         .xyconv = STMPE811_PARAM_XYCONV,   \
+                                       }
+#endif
 #endif
 /**@}*/
 

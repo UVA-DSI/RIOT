@@ -155,6 +155,8 @@ SECTIONS
   } >flash : tls
   __tls_size = __tbss_end - __tdata_start;
   __tbss_size = __tls_size - __tdata_size;
+  PROVIDE( __tbss_offset = ADDR(.tbss) - ADDR(.tdata) );
+  PROVIDE( __tls_align = MAX(ALIGNOF(.tdata), ALIGNOF(.tbss)) );
 
   .lalign         :
   {
@@ -201,6 +203,17 @@ SECTIONS
     *(COMMON)
     . = ALIGN(4);
   } >ram AT>ram :ram
+  PROVIDE( __bss_end = . );
+
+  .noinit (NOLOAD) :
+  {
+      __noinit_begin__ = .;
+
+      *(.noinit .noinit.*)
+
+        . = ALIGN(4) ;
+      __noinit_end__ = .;
+  } >ram AT>ram :ram
 
   . = ALIGN(8);
   PROVIDE( _end = . );
@@ -213,4 +226,8 @@ SECTIONS
     . = __stack_size;
     PROVIDE( _sp = . );
   } >ram AT>ram :ram
+
+  .flash_writable (NOLOAD) : {
+    KEEP(*(SORT(.flash_writable.*)))
+  } > flash
 }

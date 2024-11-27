@@ -1,6 +1,23 @@
-export DOCKER_IMAGE ?= riot/riotbuild:latest
+# This *MUST* be updated in lock-step with the riotbuild image in
+# https://github.com/RIOT-OS/riotdocker. The idea is that when checking out
+# a random RIOT merge commit, `make BUILD_IN_DOCKER=1` should always succeed.
+#
+# When the docker image is updated, checks at
+# dist/tools/buildsystem_sanity_check/check.sh start complaining in CI, and
+# provide the latest values to verify and fill in.
+DOCKER_TESTED_IMAGE_REPO_DIGEST := 045fd7eb54ccba2d5f4c06e8619bb1d5cd20ef96da8c6d4b7c1f9127e70adfff
+
+DOCKER_PULL_IDENTIFIER := docker.io/riot/riotbuild@sha256:$(DOCKER_TESTED_IMAGE_REPO_DIGEST)
+export DOCKER_IMAGE ?= $(DOCKER_PULL_IDENTIFIER)
 export DOCKER_BUILD_ROOT ?= /data/riotbuild
 DOCKER_RIOTBASE ?= $(DOCKER_BUILD_ROOT)/riotbase
+
+# These targets need to be run before docker can be run
+DEPS_FOR_RUNNING_DOCKER :=
+
+# Overwrite if you want to use `docker` with sudo
+DOCKER ?= docker
+
 # List of Docker-enabled make goals
 export DOCKER_MAKECMDGOALS_POSSIBLE = \
   all \
@@ -24,6 +41,7 @@ export DOCKER_MAKECMDGOALS ?= all
 # List of all exported environment variables that shall be passed on to the
 # Docker container, they will only be passed if they are set from the
 # environment, not if they are only default Makefile values.
+DOCKER_RIOT_CONFIG_VARIABLES := $(filter RIOT_CONFIG_%,$(.VARIABLES))
 export DOCKER_ENV_VARS += \
   APPDIR \
   AR \
@@ -39,32 +57,52 @@ export DOCKER_ENV_VARS += \
   CC \
   CC_NOCOLOR \
   CFLAGS \
+  CONTINUE_ON_EXPECTED_ERRORS \
   CPPMIX \
   CXX \
   CXXEXFLAGS \
   CXXUWFLAGS \
+  $(DOCKER_RIOT_CONFIG_VARIABLES) \
   ELFFILE \
-  HEXFILE \
   FLASHFILE \
+  HEXFILE \
+  IOTLAB_NODE \
   LINK \
   LINKFLAGPREFIX \
   LINKFLAGS \
   LTO \
   OBJCOPY \
   OFLAGS \
-  PREFIX \
-  QUIET \
-  WERROR \
+  PARTICLE_MONOFIRMWARE \
   PICOLIBC \
+  PREFIX \
   PROGRAMMER \
+  QUIET \
   RIOT_CI_BUILD \
   RIOT_VERSION \
+  RIOT_VERSION_CODE \
   SCANBUILD_ARGS \
   SCANBUILD_OUTPUTDIR \
   SIZE \
   TOOLCHAIN \
   UNDEF \
+  WERROR \
   #
+
+# List of all exported environment variables that shall be passed on to the
+# Docker container since they might have been set through the command line
+# and environment.
+# Their origin cannot be checked since they are often redefined or overriden
+# in Makefile/Makefile.include, etc. and their origin is changed to file
+export DOCKER_ENV_VARS_ALWAYS += \
+  DISABLE_MODULE \
+  DEFAULT_MODULE \
+  FEATURES_REQUIRED \
+  FEATURES_BLACKLIST \
+  FEATURES_OPTIONAL \
+  USEMODULE \
+  USEPKG \
+ #
 
 # Find which variables were set using the command line or the environment and
 # pass those to Docker.
@@ -77,6 +115,14 @@ DOCKER_ENVIRONMENT_CMDLINE_AUTO := $(foreach varname,$(DOCKER_ENV_VARS), \
   ))
 DOCKER_ENVIRONMENT_CMDLINE += $(strip $(DOCKER_ENVIRONMENT_CMDLINE_AUTO))
 
+# Pass variables potentially set through command line or environment
+# DOCKER_ENVIRONMENT_CMDLINE_ALWAYS is immediately assigned since this only wants
+# to capture variables set via the environment or command line. This will still
+# include variables set with '=' or '+=' in the application Makefile since these
+# are included before evaluating DOCKER_ENVIRONMENT_CMDLINE_ALWAYS
+DOCKER_ENVIRONMENT_CMDLINE_ALWAYS := $(foreach varname,$(DOCKER_ENV_VARS_ALWAYS), \
+  -e '$(varname)=$(subst ','\'',$(sort $($(varname))))')
+DOCKER_ENVIRONMENT_CMDLINE += $(strip $(DOCKER_ENVIRONMENT_CMDLINE_ALWAYS))
 
 # The variables set on the command line will also be passed on the command line
 # in Docker
@@ -86,15 +132,18 @@ DOCKER_OVERRIDE_CMDLINE_AUTO := $(foreach varname,$(DOCKER_ENV_VARS), \
     ))
 DOCKER_OVERRIDE_CMDLINE += $(strip $(DOCKER_OVERRIDE_CMDLINE_AUTO))
 
-# Overwrite if you want to use `docker` with sudo
-DOCKER ?= docker
+_docker_is_podman = $(shell $(DOCKER) --version | grep podman 2>/dev/null)
 
 # Set default run flags:
 # - allocate a pseudo-tty
 # - remove container on exit
 # - set username/UID to executor
 DOCKER_USER ?= $$(id -u)
-DOCKER_RUN_FLAGS ?= --rm --tty --user $(DOCKER_USER)
+DOCKER_USER_OPT = $(if $(_docker_is_podman),--userns keep-id,--user $(DOCKER_USER))
+DOCKER_RUN_FLAGS ?= --rm --tty $(DOCKER_USER_OPT)
+
+# Explicitly set the platform to what the image is expecting
+DOCKER_RUN_FLAGS += --platform linux/amd64
 
 # allow setting make args from command line like '-j'
 DOCKER_MAKE_ARGS ?=
@@ -157,7 +206,6 @@ DOCKER_MAKE_ARGS += $(DOCKER_MAKE_JOBS)
 define dir_is_outside_riotbase
 $(filter $(abspath $1)/,$(patsubst $(RIOTBASE)/%,%,$(abspath $1)/))
 endef
-
 
 # Mapping of directores inside docker
 #
@@ -237,10 +285,19 @@ DOCKER_APPDIR = $(DOCKER_RIOTPROJECT)/$(BUILDRELPATH)
 # Directory mapping in docker and directories environment variable configuration
 DOCKER_VOLUMES_AND_ENV += $(call docker_volume,$(ETC_LOCALTIME),/etc/localtime,ro)
 DOCKER_VOLUMES_AND_ENV += $(call docker_volume,$(RIOTBASE),$(DOCKER_RIOTBASE))
+# Selective components of Cargo to ensure crates are not re-downloaded (and
+# subsequently rebuilt) on every run. Not using all of ~/.cargo as ~/.cargo/bin
+# would be run by Cargo and that'd be very weird.
+DOCKER_VOLUMES_AND_ENV += $(call docker_volume,$(HOME)/.cargo/registry,$(DOCKER_BUILD_ROOT)/.cargo/registry)
+DOCKER_VOLUMES_AND_ENV += $(call docker_volume,$(HOME)/.cargo/git,$(DOCKER_BUILD_ROOT)/.cargo/git)
 DOCKER_VOLUMES_AND_ENV += -e 'RIOTBASE=$(DOCKER_RIOTBASE)'
 DOCKER_VOLUMES_AND_ENV += -e 'CCACHE_BASEDIR=$(DOCKER_RIOTBASE)'
 
 DOCKER_VOLUMES_AND_ENV += $(call docker_volume_and_env,BUILD_DIR,,build)
+
+# Prevent recursive invocation of docker by explicitely disabling docker via env variable,
+# overwriting potential default in application Makefile
+DOCKER_VOLUMES_AND_ENV += $(call docker_volume_and_env,BUILD_IN_DOCKER,,0)
 
 DOCKER_VOLUMES_AND_ENV += $(call docker_volume_and_env,RIOTPROJECT,,riotproject)
 DOCKER_VOLUMES_AND_ENV += $(call docker_volume_and_env,RIOTCPU,,riotcpu)
@@ -309,6 +366,6 @@ docker_run_make = \
 # container.
 # The `flash`, `term`, `debugserver` etc. targets usually require access to
 # hardware which may not be reachable from inside the container.
-..in-docker-container:
+..in-docker-container: $(DEPS_FOR_RUNNING_DOCKER)
 	@$(COLOR_ECHO) '$(COLOR_GREEN)Launching build container using image "$(DOCKER_IMAGE)".$(COLOR_RESET)'
 	$(call docker_run_make,$(DOCKER_MAKECMDGOALS),$(DOCKER_IMAGE),,$(DOCKER_MAKE_ARGS))

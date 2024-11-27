@@ -5,28 +5,13 @@
 # directory for more details.
 #
 
-menuconfig MODULE_PERIPH_SPI
-    bool "SPI peripheral driver"
-    depends on HAS_PERIPH_SPI
-    select MODULE_PERIPH_COMMON
+if USEMODULE_PERIPH_SPI
 
-if MODULE_PERIPH_SPI
+# TODO: these modules are actually just artifacts from the way periph_init_%
+# modules are handled in Makefile. We need to define them to keep the list the
+# same for now. We should be able to remove them later on.
 
-config MODULE_PERIPH_INIT_SPI
-    bool "Auto initialize SPI peripheral"
-    default y if MODULE_PERIPH_INIT
+# Include CPU specific configurations
+osource "$(RIOTCPU)/$(CPU)/periph/Kconfig.spi"
 
-config MODULE_PERIPH_SPI_RECONFIGURE
-    bool "Pin reconfiguration support"
-    depends on HAS_PERIPH_SPI_RECONFIGURE
-
-# TODO: this module is actually just an artifact from the way periph_init_%
-# modules are handled in Makefile. We need to define it to keep the list the
-# same for now. We should be able to remove it later on.
-
-config MODULE_PERIPH_INIT_SPI_RECONFIGURE
-    bool "Auto initialize SPI pin reconfiguration support"
-    default y if MODULE_PERIPH_INIT
-    depends on MODULE_PERIPH_SPI_RECONFIGURE
-
-endif # MODULE_PERIPH_SPI
+endif # USEMODULE_PERIPH_SPI

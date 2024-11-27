@@ -24,7 +24,7 @@
 #include "nrf24l01p_ng_constants.h"
 #include "nrf24l01p_ng_communication.h"
 
-#define ENABLE_DEBUG    (0)
+#define ENABLE_DEBUG 0
 #include "debug.h"
 
 #define SPI_BUS     (dev->params.spi)
@@ -37,7 +37,7 @@
  *
  * The NRF24L01+ expects data to be send over SPI from LSByte to MSByte
  * and will output data bytes also from LSByte to MSByte!
- * See the datasheet page 47, 8.3.1 SPI comands.
+ * See the datasheet page 47, 8.3.1 SPI commands.
  *
  * This shall be the address register of pipe 0 inside the transceiver:
  * [ x,  x,  x,  x,  x] (x = undefined content)
@@ -74,10 +74,9 @@ static void _nrf24l01p_ng_copy_and_swap_bytes(uint8_t* dst, const uint8_t* src, 
     }
 }
 
-int nrf24l01p_ng_acquire(nrf24l01p_ng_t *dev)
+void nrf24l01p_ng_acquire(nrf24l01p_ng_t *dev)
 {
-    return spi_acquire(dev->params.spi, dev->params.pin_cs, SPI_MODE_0,
-                       dev->params.spi_clk);
+    spi_acquire(dev->params.spi, dev->params.pin_cs, SPI_MODE_0, dev->params.spi_clk);
 }
 
 void nrf24l01p_ng_release(nrf24l01p_ng_t *dev)

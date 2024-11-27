@@ -37,7 +37,7 @@
 #define min(a, b) ((a) > (b) ? (b) : (a))
 #endif
 
-#define PAGE_SIZE   (dev->params.page_size)
+#define AT25_PAGE_SIZE   (dev->params.page_size)
 #define ADDR_LEN    (AT25XXX_PARAM_ADDR_LEN)
 #define ADDR_MSK    ((1UL << ADDR_LEN) - 1)
 
@@ -48,9 +48,9 @@
 #define AT225XXXX_SET_BUF_SIZE      (64)
 #endif
 
-static inline int getbus(const at25xxx_t *dev)
+static inline void getbus(const at25xxx_t *dev)
 {
-    return spi_acquire(dev->params.spi, dev->params.cs_pin, SPI_MODE_0, dev->params.spi_clk);
+    spi_acquire(dev->params.spi, dev->params.cs_pin, SPI_MODE_0, dev->params.spi_clk);
 }
 
 static inline uint32_t _pos(uint8_t cmd, uint32_t pos)
@@ -85,12 +85,12 @@ static inline int _wait_until_eeprom_ready(const at25xxx_t *dev)
 
 static int _at25xxx_write_page(const at25xxx_t *dev, uint32_t page, uint32_t offset, const void *data, size_t len)
 {
-    assert(offset < PAGE_SIZE);
+    assert(offset < AT25_PAGE_SIZE);
 
     /* write no more than to the end of the current page to prevent wrap-around */
-    size_t remaining = PAGE_SIZE - offset;
+    size_t remaining = AT25_PAGE_SIZE - offset;
     len = min(len, remaining);
-    uint32_t pos = _pos(CMD_WRITE, page * PAGE_SIZE + offset);
+    uint32_t pos = _pos(CMD_WRITE, page * AT25_PAGE_SIZE + offset);
 
     /* wait for previous write to finish - may take up to 5 ms */
     int res = _wait_until_eeprom_ready(dev);
@@ -136,8 +136,8 @@ int at25xxx_write(const at25xxx_t *dev, uint32_t pos, const void *data, size_t l
     }
 
     /* page size is always a power of two */
-    const uint32_t page_shift = bitarithm_msb(PAGE_SIZE);
-    const uint32_t page_mask = PAGE_SIZE - 1;
+    const uint32_t page_shift = bitarithm_msb(AT25_PAGE_SIZE);
+    const uint32_t page_mask = AT25_PAGE_SIZE - 1;
 
     uint32_t page   = pos >> page_shift;
     uint32_t offset = pos & page_mask;
@@ -214,8 +214,8 @@ int at25xxx_set(const at25xxx_t *dev, uint32_t pos, uint8_t val, size_t len)
     memset(data, val, sizeof(data));
 
     /* page size is always a power of two */
-    const uint32_t page_shift = bitarithm_msb(PAGE_SIZE);
-    const uint32_t page_mask = PAGE_SIZE - 1;
+    const uint32_t page_shift = bitarithm_msb(AT25_PAGE_SIZE);
+    const uint32_t page_mask = AT25_PAGE_SIZE - 1;
 
     uint32_t page   = pos >> page_shift;
     uint32_t offset = pos & page_mask;
@@ -254,10 +254,11 @@ int at25xxx_init(at25xxx_t *dev, const at25xxx_params_t *params)
         gpio_set(dev->params.hold_pin);
     }
 
-    /* check if the SPI configuration is valid */
-    if (getbus(dev) != SPI_OK) {
-        return -1;
+    if (!IS_ACTIVE(NDEBUG)) {
+        /* if assertions are on, trigger an assert on incorrect SPI settings
+         * right on initialization to ease debugging */
+        getbus(dev);
+        spi_release(dev->params.spi);
     }
-    spi_release(dev->params.spi);
     return 0;
 }

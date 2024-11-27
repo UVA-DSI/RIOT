@@ -38,7 +38,6 @@ static const mtd_spi_nor_params_t _ikea_tradfri_nor_params = {
     .cs = IKEA_TRADFRI_NOR_SPI_CS,
     .wp = GPIO_UNDEF,
     .hold = GPIO_UNDEF,
-    .addr_width = 3,
 };
 
 static mtd_spi_nor_t ikea_tradfri_nor_dev = {
@@ -51,20 +50,11 @@ static mtd_spi_nor_t ikea_tradfri_nor_dev = {
     .params = &_ikea_tradfri_nor_params,
 };
 
-mtd_dev_t *mtd0 = (mtd_dev_t *)&ikea_tradfri_nor_dev;
+MTD_XFA_ADD(ikea_tradfri_nor_dev, 0);
 #endif /* MODULE_MTD */
 
 void board_init(void)
 {
-    /* initialize the CPU */
-    cpu_init();
-
-#ifndef RIOTBOOT
-    /* initialize the LEDs */
-    gpio_init(LED0_PIN, GPIO_OUT);
-    gpio_init(LED1_PIN, GPIO_OUT);
-#endif
-
 #ifdef MODULE_MTD
     /* enable NOR flash (only on the ICC-1-A) */
     if (gpio_is_valid(IKEA_TRADFRI_NOR_EN)) {

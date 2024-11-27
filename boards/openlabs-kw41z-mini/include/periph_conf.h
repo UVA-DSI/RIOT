@@ -237,6 +237,7 @@ typedef struct {
     uint8_t chan_numof;     /**< number of actually configured channels */
     uint8_t tpm_num;        /**< FTM number used */
 } pwm_conf_t;
+/** @} */
 
 /**
  * @name    PWM configuration
@@ -315,10 +316,10 @@ static const spi_conf_t spi_config[] = {
         .pin_clk  = GPIO_PIN(PORT_C, 16),
         .pin_cs   = {
             GPIO_PIN(PORT_C, 19),
-            GPIO_UNDEF,
-            GPIO_UNDEF,
-            GPIO_UNDEF,
-            GPIO_UNDEF
+            SPI_CS_UNDEF,
+            SPI_CS_UNDEF,
+            SPI_CS_UNDEF,
+            SPI_CS_UNDEF,
         },
         .pcr      = (gpio_pcr_t)(GPIO_AF_2 | GPIO_IN_PU),
         .simmask  = SIM_SCGC6_SPI0_MASK

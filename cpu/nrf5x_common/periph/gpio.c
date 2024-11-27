@@ -38,6 +38,20 @@
 #define PORT_BIT            (1 << 5)
 #define PIN_MASK            (0x1f)
 
+/* Compatibility wrapper defines for nRF9160 */
+#ifdef NRF_P0_S
+#define NRF_P0 NRF_P0_S
+#endif
+
+#ifdef NRF_P1_S
+#define NRF_P1 NRF_P1_S
+#endif
+
+#ifdef NRF_GPIOTE0_S
+#define NRF_GPIOTE NRF_GPIOTE0_S
+#define GPIOTE_IRQn GPIOTE0_IRQn
+#endif
+
 #ifdef MODULE_PERIPH_GPIO_IRQ
 
 #if CPU_FAM_NRF51
@@ -112,7 +126,7 @@ int gpio_init(gpio_t pin, gpio_mode_t mode)
     return 0;
 }
 
-int gpio_read(gpio_t pin)
+bool gpio_read(gpio_t pin)
 {
     if (port(pin)->DIR & (1 << pin_num(pin))) {
         return (port(pin)->OUT & (1 << pin_num(pin))) ? 1 : 0;
@@ -137,7 +151,7 @@ void gpio_toggle(gpio_t pin)
     port(pin)->OUT ^= (1 << pin_num(pin));
 }
 
-void gpio_write(gpio_t pin, int value)
+void gpio_write(gpio_t pin, bool value)
 {
     if (value) {
         port(pin)->OUTSET = (1 << pin_num(pin));
@@ -189,7 +203,7 @@ int gpio_init_int(gpio_t pin, gpio_mode_t mode, gpio_flank_t flank,
 #endif
                              (flank << GPIOTE_CONFIG_POLARITY_Pos));
     /* enable external interrupt */
-    NRF_GPIOTE->INTENSET |= (GPIOTE_INTENSET_IN0_Msk << _pin_index);
+    NRF_GPIOTE->INTENSET = (GPIOTE_INTENSET_IN0_Msk << _pin_index);
 
     return 0;
 }
@@ -199,7 +213,7 @@ void gpio_irq_enable(gpio_t pin)
     for (unsigned int i = 0; i < _gpiote_next_index; i++) {
         if (_exti_pins[i] == pin) {
             NRF_GPIOTE->CONFIG[i] |= GPIOTE_CONFIG_MODE_Event;
-            NRF_GPIOTE->INTENSET |= (GPIOTE_INTENSET_IN0_Msk << i);
+            NRF_GPIOTE->INTENSET = (GPIOTE_INTENSET_IN0_Msk << i);
             break;
         }
     }
@@ -217,7 +231,7 @@ void gpio_irq_disable(gpio_t pin)
     }
 }
 
-void isr_gpiote(void)
+void ISR_GPIOTE(void)
 {
     for (unsigned int i = 0; i < _gpiote_next_index; ++i) {
         if (NRF_GPIOTE->EVENTS_IN[i] == 1) {

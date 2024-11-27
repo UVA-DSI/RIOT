@@ -14,15 +14,30 @@ USEMODULE += nimble_autoadv
 to your makefile.
 
 If your application is calling functions from nimble, e.g.
-ble_svc_gap_device_name_set(), NIMBLE_AUTOADV_START_MANUALLY should be set to 1
+ble_svc_gap_device_name_set(), CONFIG_NIMBLE_AUTOADV_START_MANUALLY should be set to 1
 with the following line in your Makefile:
 ```
-CFLAGS += -DNIMBLE_AUTOADV_START_MANUALLY=1
+CFLAGS += -DCONFIG_NIMBLE_AUTOADV_START_MANUALLY=1
 ```
 Then the application should call nimble_autoadv_adv_start() after all of its
 nimble calls to prevent errors like BLE_HS_EBUSY.
 
 To specify a device name add the following line to your Makefile:
 ```
-CFLAGS += -DNIMBLE_AUTOADV_DEVICE_NAME='"Riot OS device"'
+CFLAGS += -DCONFIG_NIMBLE_AUTOADV_DEVICE_NAME='"Riot OS device"'
 ```
+
+By the default, in the advertised packet, the module includes the advertising
+**Flags** data type. According to Bluetooth Core Specification Supplement (see
+[§1.3.1](https://www.bluetooth.com/specifications/specs/core-specification-supplement-9/))
+> The Flags data type shall be included when any of the Flag bits are non-zero
+and the advertising packet is connectable, otherwise the Flags data type may be
+omitted.
+
+If your application is not connectable (eg. a temperature sensor advertising
+its current value), you might want omit this flag by clearing the
+`CONFIG_NIMBLE_AUTOADV_FLAG_FIELD` when including this module:
+```
+CFLAGS += -DCONFIG_NIMBLE_AUTOADV_FLAG_FIELD=0
+```
+This will grant three extra bytes in the advertisement packet.

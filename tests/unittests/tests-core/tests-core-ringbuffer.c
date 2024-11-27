@@ -109,7 +109,7 @@ static void tests_core_ringbuffer(void)
     pid_add = thread_getpid();
     pid_get = thread_create(stack_get, sizeof (stack_get),
                             THREAD_PRIORITY_MAIN,
-                            THREAD_CREATE_SLEEPING | THREAD_CREATE_STACKTEST,
+                            THREAD_CREATE_SLEEPING,
                             run_get, NULL, "get");
     run_add();
 }
@@ -146,7 +146,7 @@ static void tests_core_ringbuffer_remove_underflow(void)
     ringbuffer_add_one(&buf, 0);
     ringbuffer_add_one(&buf, 1);
 
-    ringbuffer_remove(&buf,1);
+    ringbuffer_remove(&buf, 1);
 
     TEST_ASSERT_EQUAL_INT(1, ringbuffer_get_one(&buf));
     TEST_ASSERT_EQUAL_INT(1, ringbuffer_empty(&buf));

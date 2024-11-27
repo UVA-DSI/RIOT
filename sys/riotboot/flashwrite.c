@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <string.h>
 
+#include "architecture.h"
 #include "riotboot/flashwrite.h"
 #include "riotboot/slot.h"
 #include "od.h"
@@ -55,7 +56,6 @@ int riotboot_flashwrite_init_raw(riotboot_flashwrite_t *state, int target_slot,
                     FLASHPAGE_WRITE_BLOCK_SIZE),
                   "Flashpage buffer must be a multiple of write block size.");
 #endif
-
 
     LOG_INFO(LOG_PREFIX "initializing update to target slot %i\n",
              target_slot);
@@ -108,7 +108,7 @@ int riotboot_flashwrite_flush(riotboot_flashwrite_t *state)
 int riotboot_flashwrite_putbytes(riotboot_flashwrite_t *state,
                                  const uint8_t *bytes, size_t len, bool more)
 {
-    LOG_DEBUG(LOG_PREFIX "processing bytes %u-%u\n", state->offset,
+    LOG_DEBUG(LOG_PREFIX "processing bytes %" PRIuSIZE "-%" PRIuSIZE "\n", state->offset,
               state->offset + len - 1);
 
     while (len) {
@@ -139,7 +139,6 @@ int riotboot_flashwrite_putbytes(riotboot_flashwrite_t *state,
 
         memcpy(state->flashpage_buf + flashwrite_buffer_pos, bytes, to_copy);
         flashpage_avail -= to_copy;
-
 
         state->offset += to_copy;
         bytes += to_copy;
@@ -192,6 +191,7 @@ int riotboot_flashwrite_invalidate(int slot)
        write the whole header to avoid running in memory alignment issues
        with FLASHPAGE_WRITE_BLOCK_SIZE */
     riotboot_hdr_t tmp_hdr;
+
     memset(&tmp_hdr, (~FLASHPAGE_ERASE_STATE), sizeof(riotboot_hdr_t));
 
     flashpage_write((void *)riotboot_slot_get_hdr(slot), &tmp_hdr,

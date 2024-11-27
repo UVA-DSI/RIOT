@@ -11,6 +11,51 @@
  * @ingroup     drivers_misc
  * @brief       Device driver interface for the AT24CXXX EEPROM units
  *
+ * @section overview Overview
+ * Various manufacturers such as Atmel/Microchip or ST offer small I2C EEPROMs which usually
+ * come in 8-pin packages and are used for persistent data storage of settings, counters, etc.
+ * This driver adds support for these devices with direct read and write functions.
+ *
+ * The high level wrapper for RIOTs MTD interface to utilize the I2C EEPROMs as MTD storage
+ * is described in drivers_mtd_at24cxxx.
+ *
+ * A list of supported devices can be found in the at24cxxx_defines.h file.
+ *
+ * @section usage Usage
+ *
+ * The preconfigured devices in the at24cxxx_defines.h file devices are easily
+ * accessible as pseudomodules and can be added to the Makefile of your project:
+ *
+ *      USEMODULE += at24c02
+ *
+ * When using one of the pseudomodules, the configuration of the device is already
+ * predefined in the AT24CXXX_PARAMS macro and can be used for the
+ * initialization:
+ *
+ *      at24cxxx_t eeprom_dev;
+ *      at24cxxx_params_t eeprom_params = AT24CXXX_PARAMS;
+ *
+ *      at24cxxx_init(&eeprom_dev, &eeprom_params);
+ *
+ * \n
+ * For other devices that are not yet part of the library, the generic module
+ * has to be added:
+ *
+ *      USEMODULE += at24cxxx
+ *
+ * The predefined macro can not be used in this case, so the parameters of the
+ * device have to be added to the at24cxxx_params_t structure manually with
+ * the values from the corresponding datasheet:
+ *
+ *      at24cxxx_t eeprom_dev;
+ *      at24cxxx_params_t eeprom_params = {
+ *          .i2c = I2C_DEV(0), \
+ *          ...
+ *      };
+ *
+ *      at24cxxx_init(&eeprom_dev, &eeprom_params);
+ *
+ *
  * @{
  *
  * @file
@@ -96,8 +141,7 @@ int at24cxxx_read_byte(const at24cxxx_t *dev, uint32_t pos, void *dest);
  * @return          -ERANGE if @p pos + @p len is out of bounds
  * @return          @see i2c_read_regs
  */
-int at24cxxx_read(const at24cxxx_t *dev, uint32_t pos, void *data,
-                  size_t len);
+int at24cxxx_read(const at24cxxx_t *dev, uint32_t pos, void *data, size_t len);
 
 /**
  * @brief   Write a byte at a given position @p pos
@@ -128,23 +172,6 @@ int at24cxxx_write_byte(const at24cxxx_t *dev, uint32_t pos, uint8_t data);
  */
 int at24cxxx_write(const at24cxxx_t *dev, uint32_t pos, const void *data,
                    size_t len);
-
-/**
- * @brief Sequentially write @p len bytes to a given @p page.
- *        The function will write up to the page boundary and then return
- *        the number of bytes written up to that.
- *
- * @param[in] dev       AT24CXXX device handle
- * @param[in] page      page of EEPROM memory
- * @param[in] offset    offset from the start of the page, must be < page size
- * @param[in] data      write buffer
- * @param[in] len       requested length to be written
- *
- * @return    number of bytes written on success
- * @return    error on failure
- */
-int at24cxxx_write_page(const at24cxxx_t *dev, uint32_t page, uint32_t offset,
-                        const void *data, size_t len);
 
 /**
  * @brief   Set @p len bytes from a given position @p pos to the

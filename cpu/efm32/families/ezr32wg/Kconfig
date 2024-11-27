@@ -9,7 +9,6 @@ config CPU_FAM_EZR32WG
     select CPU_CORE_CORTEX_M4F
     select CPU_COMMON_EFM32
     select CPU_EFM32_SERIES0
-    select HAS_CORTEXM_MPU
 
 ## CPU Models
 config CPU_MODEL_EZR32WG230F128R68

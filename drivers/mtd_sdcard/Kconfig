@@ -5,27 +5,23 @@
 # General Public License v2.1. See the file LICENSE in the top level
 # directory for more details.
 #
-
-config MODULE_MTD_SDCARD
-    bool "MTD interface for SPI SD-Card"
-    depends on MODULE_SDCARD_SPI
-    depends on TEST_KCONFIG
-    select MODULE_MTD
-
-menuconfig KCONFIG_USEMODULE_MTD_SDCARD
-    bool "Configure MTD_SDCARD driver"
+menu "MTD_SDCARD driver"
     depends on USEMODULE_MTD_SDCARD
-    help
-        Configure the MTD_SDCARD driver using Kconfig.
 
-if KCONFIG_USEMODULE_MTD_SDCARD
+config SDCARD_GENERIC_MTD_OFFSET
+    depends on USEMODULE_MTD_SDCARD_DEFAULT
+    int "Index of first auto-configured MTD SDcard device"
+    default 1
+    help
+        If you have other MTD devices defined, set this number so that
+        the auto-configured SD Card(s) from mtd_sdcard_default will come after them.
 
 config MTD_SDCARD_ERASE
     bool "Enable SD card erase"
     help
         Enable this to erase sector before a data write operation.
-        SDCards handle sector erase internally so it's
+        SDCards handle sector erase internally so its
         possible to directly write to the card without erasing
         the sector first hence this feature is disabled by default.
 
-endif # KCONFIG_USEMODULE_MTD_SDCARD
+endmenu # MTD_SDCARD driver

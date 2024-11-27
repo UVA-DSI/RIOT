@@ -28,7 +28,11 @@ extern "C" {
 /**
  * @brief   Available number of ADC devices
  */
+#if defined (ADC3)
+#define ADC_DEVS            (3U)
+#else
 #define ADC_DEVS            (2U)
+#endif
 
 #ifndef DOXYGEN
 
@@ -37,6 +41,12 @@ extern "C" {
  *          see application note AN2606
  */
 #define STM32_BOOTLOADER_ADDR   (0x1FFF0000)
+
+/**
+ * @brief   Readout Protection (RDP) option bytes
+ */
+#define STM32_OPTION_BYTES   ((uint32_t*) 0x1FFFC000)
+#define GET_RDP(x) ((x & 0xFF00) >> 8)
 
 /**
  * @brief   Override the ADC resolution configuration
@@ -52,6 +62,15 @@ typedef enum {
     ADC_RES_16BIT = 2            /**< ADC resolution: 16 bit (not supported)*/
 } adc_res_t;
 /** @} */
+
+/**
+ * @name   Constants for internal VBAT ADC line
+ * @{
+ */
+#define VBAT_ADC_RES        ADC_RES_12BIT
+#define VBAT_ADC_MAX        4095
+/** @} */
+
 #endif /* ndef DOXYGEN */
 
 #ifdef __cplusplus

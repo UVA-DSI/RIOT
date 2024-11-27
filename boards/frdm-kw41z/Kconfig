@@ -10,8 +10,6 @@ config BOARD
 config BOARD_FRDM_KW41Z
     bool
     default y
-    select HAS_PERIPH_I2C
-    select HAS_PERIPH_SPI
     select BOARD_COMMON_KW41Z
 
 source "$(RIOTBOARD)/common/kw41z/Kconfig"

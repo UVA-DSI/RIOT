@@ -7,15 +7,7 @@
 
 config CPU_FAM_FE310
     bool
-    select CPU_CORE_RV32I
-    select HAS_CPU_FE310
-    select HAS_PERIPH_CPUID
-    select HAS_PERIPH_GPIO
-    select HAS_PERIPH_GPIO_IRQ
-    select HAS_PERIPH_PM
-    select HAS_PERIPH_RTT_OVERFLOW
-    select HAS_PERIPH_RTT_SET_COUNTER
-    select HAS_PERIPH_WDT
+    select CPU_CORE_RV32IMAC
 
 config CPU_MODEL_FE310_G000
     bool
@@ -24,12 +16,6 @@ config CPU_MODEL_FE310_G000
 config CPU_MODEL_FE310_G002
     bool
     select CPU_FAM_FE310
-
-## Definition of specific features
-config HAS_CPU_FE310
-    bool
-    help
-        Indicates that a 'fe310' cpu is being used.
 
 config CPU_FAM
     default "fe310" if CPU_FAM_FE310
@@ -40,6 +26,9 @@ config CPU_MODEL
 
 config CPU
     default "fe310" if CPU_FAM_FE310
+
+config CPU_CORE
+    default "rv32imac" if CPU_CORE_RV32IMAC
 
 rsource "Kconfig.clk"
 

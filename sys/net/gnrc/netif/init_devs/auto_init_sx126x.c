@@ -24,6 +24,7 @@
 #include "net/gnrc/netif/lorawan_base.h"
 #include "net/gnrc/netif/raw.h"
 #include "net/gnrc.h"
+#include "include/init_devs.h"
 
 #include "sx126x.h"
 #include "sx126x_params.h"
@@ -36,7 +37,7 @@
 /**
  * @brief   Define stack parameters for the MAC layer thread
  */
-#define SX126X_STACKSIZE            (THREAD_STACKSIZE_DEFAULT)
+#define SX126X_STACKSIZE            (GNRC_NETIF_STACKSIZE_DEFAULT)
 #ifndef SX126X_PRIO
 #define SX126X_PRIO                 (GNRC_NETIF_PRIO)
 #endif
@@ -59,12 +60,12 @@ void auto_init_sx126x(void)
 
             gnrc_netif_lorawan_create(&_netif[i], sx126x_stacks[i],
                                       SX126X_STACKSIZE, SX126X_PRIO,
-                                      "sx126x", (netdev_t *)&sx126x_devs[i]);
+                                      "sx126x", &sx126x_devs[i].netdev);
         }
         else {
             gnrc_netif_raw_create(&_netif[i], sx126x_stacks[i],
                                   SX126X_STACKSIZE, SX126X_PRIO,
-                                  "sx126x", (netdev_t *)&sx126x_devs[i]);
+                                  "sx126x", &sx126x_devs[i].netdev);
         }
     }
 }

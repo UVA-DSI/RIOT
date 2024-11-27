@@ -48,8 +48,20 @@ ifneq (,$(filter ccs811_%,$(USEMODULE)))
   USEMODULE += ccs811
 endif
 
+ifneq (,$(filter ethos_%,$(USEMODULE)))
+  USEMODULE += ethos
+endif
+
+ifneq (,$(filter ft6% ft5% ft3%,$(USEMODULE)))
+  USEMODULE += ft5x06
+endif
+
 ifneq (,$(filter hmc5883l_%,$(USEMODULE)))
   USEMODULE += hmc5883l
+endif
+
+ifneq (,$(filter hm330%,$(USEMODULE)))
+  USEMODULE += hm330x
 endif
 
 ifneq (,$(filter ina2%,$(USEMODULE)))
@@ -64,6 +76,10 @@ ifneq (,$(filter itg320x_%,$(USEMODULE)))
   USEMODULE += itg320x
 endif
 
+ifneq (,$(filter l3gxxxx_%,$(USEMODULE)))
+  USEMODULE += l3gxxxx
+endif
+
 ifneq (,$(filter lis2dh12%,$(USEMODULE)))
   USEMODULE += lis2dh12
 endif
@@ -72,12 +88,24 @@ ifneq (,$(filter llcc68,$(USEMODULE)))
   USEMODULE += sx126x
 endif
 
-ifneq (,$(filter lps331ap lps2%hb,$(USEMODULE)))
+ifneq (,$(filter tmp1075 lm75%,$(USEMODULE)))
+  USEMODULE += lm75
+endif
+
+ifneq (,$(filter lps331ap lps2%,$(USEMODULE)))
   USEMODULE += lpsxxx
+endif
+
+ifneq (,$(filter lsm6ds%,$(USEMODULE)))
+  USEMODULE += lsm6dsxx
 endif
 
 ifneq (,$(filter ltc4150_%,$(USEMODULE)))
   USEMODULE += ltc4150
+endif
+
+ifneq (,$(filter m24c%,$(USEMODULE)))
+  USEMODULE += at24cxxx
 endif
 
 ifneq (,$(filter mhz19_%,$(USEMODULE)))
@@ -102,15 +130,40 @@ endif
 ifneq (,$(filter nrfmin,$(USEMODULE)))
   FEATURES_REQUIRED += radio_nrfmin
   FEATURES_REQUIRED += periph_cpuid
-  USEMODULE += netif
 endif
 
 ifneq (,$(filter nrf24l01p_ng_%,$(USEMODULE)))
   USEMODULE += nrf24l01p_ng
 endif
 
+ifneq (,$(filter pcf857%,$(USEMODULE)))
+  USEMODULE += pcf857x
+endif
+
+ifneq (,$(filter periph_flashpage_aux,$(FEATURES_USED)))
+  FEATURES_REQUIRED += periph_flashpage_pagewise
+endif
+
 ifneq (,$(filter periph_ptp_timer periph_ptp_speed_adjustment,$(FEATURES_USED)))
   FEATURES_REQUIRED += periph_ptp
+endif
+
+ifneq (,$(filter periph_usbdev,$(USEMODULE)))
+  USEMODULE += periph_usbdev_clk
+endif
+
+ifneq (,$(filter periph_usbdev_hs_ulpi,$(USEMODULE)))
+  FEATURES_REQUIRED += periph_usbdev_hs_ulpi
+  USEMODULE += periph_usbdev_hs
+endif
+
+ifneq (,$(filter periph_usbdev_hs_utmi,$(USEMODULE)))
+  FEATURES_REQUIRED += periph_usbdev_hs_utmi
+  USEMODULE += periph_usbdev_hs
+endif
+
+ifneq (,$(filter periph_usbdev_hs,$(USEMODULE)))
+  FEATURES_REQUIRED += periph_usbdev_hs
 endif
 
 ifneq (,$(filter pn532_i2c,$(USEMODULE)))
@@ -135,8 +188,31 @@ ifneq (,$(filter sdp3x_%,$(USEMODULE)))
   USEMODULE += sdp3x
 endif
 
+ifneq (,$(filter servo_%,$(USEMODULE)))
+  USEMODULE += servo
+endif
+
+ifneq (,$(filter shield_llcc68,$(USEMODULE)))
+  FEATURES_REQUIRED += arduino_pins
+  FEATURES_REQUIRED += arduino_shield_uno
+  FEATURES_REQUIRED += arduino_spi
+  USEMODULE += llcc68
+endif
+
+ifneq (,$(filter shield_w5100,$(USEMODULE)))
+  FEATURES_REQUIRED += arduino_pins
+  FEATURES_REQUIRED += arduino_shield_isp
+  FEATURES_REQUIRED += arduino_shield_uno
+  FEATURES_REQUIRED += arduino_spi
+  USEMODULE += w5100
+endif
+
 ifneq (,$(filter sht1%,$(USEMODULE)))
   USEMODULE += sht1x
+endif
+
+ifneq (,$(filter shtc%,$(USEMODULE)))
+  USEMODULE += shtcx
 endif
 
 ifneq (,$(filter si114%,$(USEMODULE)))
@@ -151,6 +227,14 @@ ifneq (,$(filter slipdev_%,$(USEMODULE)))
   USEMODULE += slipdev
 endif
 
+ifneq (,$(filter stmpe811_%,$(USEMODULE)))
+  USEMODULE += stmpe811
+endif
+
+ifneq (,$(filter st77%,$(USEMODULE)))
+  USEMODULE += st77xx
+endif
+
 ifneq (,$(filter sx126%,$(USEMODULE)))
   USEMODULE += sx126x
 endif
@@ -163,8 +247,17 @@ ifneq (,$(filter tmp00%,$(USEMODULE)))
   USEMODULE += tmp00x
 endif
 
+ifneq (,$(filter usbdev_synopsys_dwc2,$(USEMODULE)))
+  FEATURES_REQUIRED += periph_usbdev
+  USEMODULE += ztimer_msec
+endif
+
 ifneq (,$(filter vcnl40%0,$(USEMODULE)))
   USEMODULE += vcnl40x0
+endif
+
+ifneq (,$(filter vl6180x_%,$(USEMODULE)))
+  USEMODULE += vl6180x
 endif
 
 ifneq (,$(filter ws281x_%,$(USEMODULE)))
@@ -205,10 +298,20 @@ ifneq (,$(filter periph_timer_periodic,$(USEMODULE)))
   FEATURES_REQUIRED += periph_timer
 endif
 
-ifneq (,$(filter-out netdev_default, $(filter netdev_%,$(USEMODULE))))
+ifneq (,$(filter periph_wdt_auto_start,$(USEMODULE)))
+  FEATURES_REQUIRED += periph_wdt
+endif
+
+ifneq (,$(filter-out netdev_default netdev_new_api netdev_legacy_api, $(filter netdev_%,$(USEMODULE))))
   USEMODULE += netdev
   # Don't register netdevs if there is only a single one of them
   ifeq (,$(filter gnrc_netif_single,$(USEMODULE)))
     USEMODULE += netdev_register
+  endif
+endif
+
+ifneq (,$(filter gnrc_netif_timestamp,$(USEMODULE)))
+  ifneq (,$(filter netdev_ieee802154,$(USEMODULE)))
+    USEMODULE += netdev_ieee802154_rx_timestamp
   endif
 endif

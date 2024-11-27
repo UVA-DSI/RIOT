@@ -40,7 +40,6 @@ static const mtd_spi_nor_params_t _weact_nor_params = {
     .cs   = WEACT_4X1CX_NOR_SPI_CS,
     .wp   = GPIO_UNDEF,
     .hold = GPIO_UNDEF,
-    .addr_width = 3,
 };
 
 static mtd_spi_nor_t weact_nor_dev = {
@@ -52,13 +51,10 @@ static mtd_spi_nor_t weact_nor_dev = {
     .params = &_weact_nor_params,
 };
 
-mtd_dev_t *mtd0 = (mtd_dev_t *)&weact_nor_dev;
+MTD_XFA_ADD(weact_nor_dev, 0);
+
+#ifdef MODULE_VFS_DEFAULT
+#include "vfs_default.h"
+VFS_AUTO_MOUNT(littlefs2, VFS_MTD(weact_nor_dev), VFS_DEFAULT_NVM(0), 0);
+#endif
 #endif /* MODULE_MTD */
-
-void board_init(void)
-{
-    cpu_init();
-
-    gpio_init(LED0_PIN, GPIO_OUT);
-    LED0_OFF;
-}

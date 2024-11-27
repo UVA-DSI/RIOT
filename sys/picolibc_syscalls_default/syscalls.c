@@ -117,8 +117,11 @@ void __attribute__((__noreturn__))
 _exit(int n)
 {
     LOG_INFO("#! exit %i: powering off\n", n);
+#ifdef MODULE_PERIPH_PM
     pm_off();
-    while(1);
+#endif /* MODULE_PERIPH_PM */
+    for (;;) {
+    }
 }
 
 /**
@@ -235,11 +238,26 @@ static int picolibc_get(FILE *file)
 FILE picolibc_stdio =
     FDEV_SETUP_STREAM(picolibc_put, picolibc_get, picolibc_flush, _FDEV_SETUP_RW);
 
+#ifdef PICOLIBC_STDIO_GLOBALS
+#ifdef __strong_reference
+/* This saves two const pointers.
+ * See https://github.com/RIOT-OS/RIOT/pull/17001#issuecomment-945936918
+ */
+#define STDIO_ALIAS(x) __strong_reference(stdin, x);
+#else
+#define STDIO_ALIAS(x) FILE *const x = &__picolibc_stdio;
+#endif
+
+FILE *const stdin = &picolibc_stdio;
+STDIO_ALIAS(stdout);
+STDIO_ALIAS(stderr);
+#else
 FILE *const __iob[] = {
-    &picolibc_stdio,    /* stdin  */
-    &picolibc_stdio,    /* stdout */
-    &picolibc_stdio,    /* stderr */
+    &picolibc_stdio,        /* stdin  */
+    &picolibc_stdio,        /* stdout */
+    &picolibc_stdio,        /* stderr */
 };
+#endif
 
 #include <thread.h>
 /**
@@ -289,6 +307,13 @@ int open(const char *name, int flags, int mode)
 #endif
 }
 
+/*
+ * Picolibc newer than 1.8 uses standard posix types for read/write
+ * return values
+ */
+#if __PICOLIBC_MAJOR__ > 1 || __PICOLIBC_MINOR__ >= 8
+#define _READ_WRITE_RETURN_TYPE ssize_t
+#endif
 /**
  * @brief Read bytes from an open file
  *

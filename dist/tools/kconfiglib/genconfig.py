@@ -173,6 +173,9 @@ def check_config_symbols(kconf):
                 if rng is not None:
                     msg = "   Check that the value is in the correct range:"
                     msg += "[{} - {}] {}\n".format(rng[0], rng[1], rng[2])
+            elif not sym.visibility:
+                msg = "   The symbol is not visible, either it is not "
+                msg += "configurable or its prompt is hidden."
 
             log_error(msg)
 
@@ -242,16 +245,9 @@ def check_configs(kconf):
         - A configuration parameter could not be set to value defined by the
           user.
     """
-    test_kconfig = os.getenv("TEST_KCONFIG")
-
-    if (test_kconfig):
-        app_check = check_application_symbol(kconf)
-    else:
-        app_check = True
-
     sym_check = check_config_symbols(kconf)
     choice_check = check_config_choices(kconf)
-    return app_check and sym_check and choice_check
+    return sym_check and choice_check
 
 
 def get_sym_missing_deps(sym):
@@ -390,9 +386,7 @@ with error.""")
     kconf = RiotKconfig(args.kconfig_filename, warn_to_stderr=False)
     merge_configs(kconf, args.config_sources)
 
-    # HACK: Force all symbols to be evaluated, to catch warnings generated
-    # during evaluation (such as out-of-range integers)
-    kconf.write_config(os.devnull)
+    kconf.evaluate_config()
 
     if not check_configs(kconf) and not args.ignore_config_errors:
         sys.exit(1)

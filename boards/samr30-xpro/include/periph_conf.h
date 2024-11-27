@@ -39,7 +39,7 @@ static const tc32_conf_t timer_config[] = {
         .dev            = TC0,
         .irq            = TC0_IRQn,
         .mclk           = &MCLK->APBCMASK.reg,
-        .mclk_mask      = MCLK_APBCMASK_TC0 | MCLK_APBCMASK_TC1,
+        .mclk_mask      = MCLK_APBCMASK_TC0_Msk | MCLK_APBCMASK_TC1_Msk,
         .gclk_id        = TC0_GCLK_ID,
         .gclk_src       = SAM0_GCLK_TIMER,
         .flags          = TC_CTRLA_MODE_COUNT32,
@@ -158,7 +158,6 @@ static const i2c_conf_t i2c_config[] = {
 #endif
 /** @} */
 
-
 /**
  * @name ADC Configuration
  * @{
@@ -172,11 +171,11 @@ static const i2c_conf_t i2c_config[] = {
 
 static const adc_conf_chan_t adc_channels[] = {
     /* port, pin, muxpos */
-    {GPIO_PIN(PA, 6), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN6)}, /* EXT1, pin 3 */
-    {GPIO_PIN(PA, 7), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN7)}, /* EXT1, pin 4 */
-    {GPIO_PIN(PA, 10), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN18)},
-    {GPIO_PIN(PA, 11), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN19)},
-    {GPIO_PIN(PA, 2), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN0)}
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA06 }, /* EXT1, pin 3 */
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA07 }, /* EXT1, pin 4 */
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA10 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA11 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA02 }
 };
 
 #define ADC_NUMOF                               ARRAY_SIZE(adc_channels)
@@ -195,6 +194,7 @@ static const sam0_common_usb_config_t sam_usbdev_config[] = {
         .gclk_src = SAM0_GCLK_48MHZ,
     }
 };
+/** @} */
 
 #ifdef __cplusplus
 }

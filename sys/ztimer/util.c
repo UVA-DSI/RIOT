@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <errno.h>
 
+#include "atomic_utils.h"
 #include "irq.h"
 #include "mutex.h"
 #include "rmutex.h"
@@ -109,7 +110,7 @@ int ztimer_msg_receive_timeout(ztimer_clock_t *clock, msg_t *msg,
         return 1;
     }
 
-    ztimer_t t;
+    ztimer_t t = { .base = { .next = NULL } };
     msg_t m = { .type = MSG_ZTIMER, .content.ptr = &m };
 
     ztimer_set_msg(clock, &t, timeout, &m, thread_getpid());
@@ -142,6 +143,18 @@ void ztimer_set_timeout_flag(ztimer_clock_t *clock, ztimer_t *t,
     ztimer_set(clock, t, timeout);
 }
 #endif
+
+void ztimer_mutex_unlock(ztimer_clock_t *clock, ztimer_t *timer, uint32_t offset,
+                         mutex_t *mutex)
+{
+    unsigned state = irq_disable();
+
+    timer->callback = _callback_unlock_mutex;
+    timer->arg = (void *)mutex;
+
+    irq_restore(state);
+    ztimer_set(clock, timer, offset);
+}
 
 static void _callback_wakeup(void *arg)
 {
@@ -190,8 +203,7 @@ int ztimer_rmutex_lock_timeout(ztimer_clock_t *clock, rmutex_t *rmutex,
         return 0;
     }
     if (ztimer_mutex_lock_timeout(clock, &rmutex->mutex, timeout) == 0) {
-        atomic_store_explicit(&rmutex->owner,
-                              thread_getpid(), memory_order_relaxed);
+        atomic_store_kernel_pid(&rmutex->owner, thread_getpid());
         rmutex->refcount++;
         return 0;
     }

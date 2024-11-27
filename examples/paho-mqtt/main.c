@@ -21,12 +21,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
-#include "xtimer.h"
+#include "timex.h"
+#include "ztimer.h"
 #include "shell.h"
 #include "thread.h"
 #include "mutex.h"
 #include "paho_mqtt.h"
 #include "MQTTClient.h"
+
+#define MAIN_QUEUE_SIZE     (8)
+static msg_t _main_msg_queue[MAIN_QUEUE_SIZE];
 
 #define BUF_SIZE                        1024
 #define MQTT_VERSION_v311               4       /* MQTT v3.1.1 version is 4 */
@@ -162,7 +166,7 @@ static int _cmd_con(int argc, char **argv)
 
     printf("mqtt_example: Connecting to MQTT Broker from %s %d\n",
             remote_ip, port);
-    printf("mqtt_example: Trying to connect to %s , port: %d\n",
+    printf("mqtt_example: Trying to connect to %s, port: %d\n",
             remote_ip, port);
     ret = NetworkConnect(&network, remote_ip, port);
     if (ret < 0) {
@@ -292,9 +296,12 @@ static unsigned char readbuf[BUF_SIZE];
 
 int main(void)
 {
+    if (IS_USED(MODULE_GNRC_ICMPV6_ECHO)) {
+        msg_init_queue(_main_msg_queue, MAIN_QUEUE_SIZE);
+    }
 #ifdef MODULE_LWIP
     /* let LWIP initialize */
-    xtimer_sleep(1);
+    ztimer_sleep(ZTIMER_MSEC, 1 * MS_PER_SEC);
 #endif
 
     NetworkInit(&network);

@@ -46,7 +46,7 @@ static const tc32_conf_t timer_config[] = {
         .dev = TC0,
         .irq = TC0_IRQn,
         .mclk = &MCLK->APBCMASK.reg,
-        .mclk_mask = MCLK_APBCMASK_TC0 | MCLK_APBCMASK_TC1,
+        .mclk_mask = MCLK_APBCMASK_TC0_Msk | MCLK_APBCMASK_TC1_Msk,
         .gclk_id = TC0_GCLK_ID,
         .gclk_src = SAM0_GCLK_TIMER,
         .flags = TC_CTRLA_MODE_COUNT32,
@@ -91,7 +91,6 @@ static const uart_conf_t uart_config[] = {
  */
 /* SERCOM5 does not support DMA at the moment. See Datasheet samr34, Figure 4-2 */
 static const spi_conf_t spi_config[] = {
-
     {
         .dev = &(SERCOM5->SPI),
         .miso_pin = GPIO_PIN(PA, 23),
@@ -177,11 +176,11 @@ static const i2c_conf_t i2c_config[] = {
 
 static const adc_conf_chan_t adc_channels[] = {
     /* port, pin, muxpos */
-    { GPIO_PIN(PA, 9), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN17) },
-    { GPIO_PIN(PA, 8), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN16) },
-    { GPIO_PIN(PA, 7), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN7) },
-    { GPIO_PIN(PA, 6), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN6) },
-    { GPIO_PIN(PA, 4), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN4) }
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA09 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA08 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA07 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA06 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA04 }
 };
 
 #define ADC_NUMOF                               ARRAY_SIZE(adc_channels)

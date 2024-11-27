@@ -4,14 +4,9 @@
 # General Public License v2.1. See the file LICENSE in the top level
 # directory for more details.
 #
-menuconfig KCONFIG_USEMODULE_USBUS
-    bool "Configure USB Unified Stack (USBUS)"
+
+menu "Configure USB Unified Stack (USBUS)"
     depends on USEMODULE_USBUS
-    help
-        Configure the USBUS module via Kconfig.
-
-if KCONFIG_USEMODULE_USBUS
-
 config USBUS_AUTO_ATTACH
     bool "Auto attach"
     default y
@@ -28,21 +23,22 @@ choice
         transfer large amount of data often over the control endpoint, a minimal
         size should be sufficient.
 
-config USBUS_EP0_SIZE_8
-    bool "8"
+    config USBUS_EP0_SIZE_8
+        bool "8"
 
-config USBUS_EP0_SIZE_16
-    bool "16"
+    config USBUS_EP0_SIZE_16
+        bool "16"
 
-config USBUS_EP0_SIZE_32
-    bool "32"
+    config USBUS_EP0_SIZE_32
+        bool "32"
 
-config USBUS_EP0_SIZE_64
-    bool "64"
+    config USBUS_EP0_SIZE_64
+        bool "64"
 
 endchoice
+endmenu # Configure USB Unified Stack (USBUS)
 
 rsource "cdc/Kconfig"
 rsource "dfu/Kconfig"
-
-endif # KCONFIG_USEMODULE_USBUS
+rsource "hid/Kconfig"
+rsource "msc/Kconfig"

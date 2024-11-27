@@ -23,7 +23,7 @@
 #ifndef DBGPIN_H
 #define DBGPIN_H
 
-#include "kernel_defines.h"
+#include "container.h"
 #include "periph/gpio.h"
 
 #ifdef __cplusplus
@@ -107,7 +107,6 @@ static inline size_t dbgpin_count(void)
     static const gpio_t dbgpin_pins[] = { DBGPIN_PINS };
     return ARRAY_SIZE(dbgpin_pins);
 }
-
 
 /**
  * @brief   Initialize the configured input pins

@@ -50,7 +50,6 @@
 #error "RTT config: RTT_FREQUENCY not configured or invalid for your board"
 #endif
 
-
 #if defined(CPU_FAM_STM32F4) || defined(CPU_FAM_STM32F7)
 #define CLOCK_SRC_REG       RCC->DCKCFGR2
 #define CLOCK_SRC_MASK      RCC_DCKCFGR2_LPTIM1SEL
@@ -87,7 +86,8 @@ register. */
 #if defined(CPU_FAM_STM32L4) || defined(CPU_FAM_STM32WB) || defined(CPU_FAM_STM32L5)
 #define IMR_REG             IMR2
 #define EXTI_IMR_BIT        EXTI_IMR2_IM32
-#elif defined(CPU_FAM_STM32G0) || defined(CPU_FAM_STM32WL)
+#elif defined(CPU_FAM_STM32G0) || defined(CPU_FAM_STM32WL) || \
+    defined(CPU_FAM_STM32C0)
 #define IMR_REG             IMR1
 #define EXTI_IMR_BIT        EXTI_IMR1_IM29
 #elif defined(CPU_FAM_STM32G4)
@@ -106,7 +106,6 @@ register. */
 #define EXTI_IMR_BIT        EXTI_IMR_MR23
 #define EXTI_PR_BIT         EXTI_PR_PR23
 #endif
-
 
 /* allocate memory for overflow and alarm callbacks + args */
 static rtt_cb_t ovf_cb = NULL;
@@ -139,12 +138,12 @@ void rtt_init(void)
 #if !defined(CPU_FAM_STM32L4) && !defined(CPU_FAM_STM32L0) && \
     !defined(CPU_FAM_STM32WB) && !defined(CPU_FAM_STM32G4) && \
     !defined(CPU_FAM_STM32G0) && !defined(CPU_FAM_STM32WL) && \
-    !defined(CPU_FAM_STM32L5)
+    !defined(CPU_FAM_STM32L5) && !defined(CPU_FAM_STM32C0)
     EXTI->FTSR_REG &= ~(EXTI_FTSR_BIT);
     EXTI->RTSR_REG |= EXTI_RTSR_BIT;
     EXTI->PR_REG = EXTI_PR_BIT;
 #endif
-#if defined(CPU_FAM_STM32G0)
+#if defined(TIM6_DAC_LPTIM1_SHARED_IRQ)
     NVIC_EnableIRQ(TIM6_DAC_LPTIM1_IRQn);
 #else
     NVIC_EnableIRQ(LPTIM1_IRQn);
@@ -251,7 +250,7 @@ void isr_lptim1(void)
 #if !defined(CPU_FAM_STM32L4) && !defined(CPU_FAM_STM32L0) && \
     !defined(CPU_FAM_STM32WB) && !defined(CPU_FAM_STM32G4) && \
     !defined(CPU_FAM_STM32G0) && !defined(CPU_FAM_STM32WL) && \
-    !defined(CPU_FAM_STM32L5)
+    !defined(CPU_FAM_STM32L5) && !defined(CPU_FAM_STM32C0)
     EXTI->PR_REG = EXTI_PR_BIT; /* only clear the associated bit */
 #endif
 

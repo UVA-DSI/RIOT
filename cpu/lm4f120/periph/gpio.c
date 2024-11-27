@@ -19,7 +19,6 @@
  * @}
  */
 
-
 #include <stdio.h>
 
 #include "cpu.h"
@@ -95,7 +94,6 @@ typedef struct {
 static gpio_state_t gpio_config[NUM_OF_PORT][NUM_OF_PINS];
 #endif /* MODULE_PERIPH_GPIO_IRQ */
 
-
 int gpio_init(gpio_t pin, gpio_mode_t mode)
 {
     const uint8_t port_num = _port_num(pin);
@@ -121,7 +119,7 @@ int gpio_init(gpio_t pin, gpio_mode_t mode)
     return 0;
 }
 
-int gpio_read(gpio_t pin)
+bool gpio_read(gpio_t pin)
 {
     const uint8_t port_num = _port_num(pin);
     const uint32_t port_addr = _port_base[port_num];
@@ -159,7 +157,7 @@ void gpio_toggle(gpio_t pin)
     }
 }
 
-void gpio_write(gpio_t pin, int value)
+void gpio_write(gpio_t pin, bool value)
 {
     if (value) {
         gpio_set(pin);

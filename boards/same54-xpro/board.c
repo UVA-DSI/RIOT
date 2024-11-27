@@ -20,11 +20,14 @@
 
 #include "board.h"
 #include "periph/gpio.h"
-#include "mtd_spi_nor.h"
 #include "timex.h"
+#ifdef MODULE_VFS_DEFAULT
+#include "vfs_default.h"
+#endif
 
-#ifdef MODULE_MTD
-/* N25Q256A */
+#ifdef MODULE_MTD_SPI_NOR
+#include "mtd_spi_nor.h"
+/* N25Q256A or SST26VF064B */
 static const mtd_spi_nor_params_t _same54_nor_params = {
     .opcode = &mtd_spi_nor_opcode_default,
     .wait_chip_erase = 240 * US_PER_SEC,
@@ -38,7 +41,6 @@ static const mtd_spi_nor_params_t _same54_nor_params = {
     .cs   = SAM0_QSPI_PIN_CS,
     .wp   = SAM0_QSPI_PIN_DATA_2,
     .hold = SAM0_QSPI_PIN_DATA_3,
-    .addr_width = 4,
 };
 
 static mtd_spi_nor_t same54_nor_dev = {
@@ -49,8 +51,14 @@ static mtd_spi_nor_t same54_nor_dev = {
     },
     .params = &_same54_nor_params,
 };
-mtd_dev_t *mtd0 = (mtd_dev_t *)&same54_nor_dev;
+MTD_XFA_ADD(same54_nor_dev, 0);
 
+#ifdef MODULE_VFS_DEFAULT
+VFS_AUTO_MOUNT(littlefs2, VFS_MTD(same54_nor_dev), VFS_DEFAULT_NVM(0), 0);
+#endif
+#endif /* MODULE_MTD_SPI_NOR */
+
+#ifdef MODULE_MTD_AT24CXXX
 #include "mtd_at24cxxx.h"
 #include "at24cxxx_params.h"
 static at24cxxx_t at24cxxx_dev;
@@ -61,18 +69,31 @@ static mtd_at24cxxx_t at24mac_dev = {
     .at24cxxx_eeprom = &at24cxxx_dev,
     .params = at24cxxx_params,
 };
-mtd_dev_t *mtd1 = (mtd_dev_t *)&at24mac_dev;
-#endif /* MODULE_MTD */
+MTD_XFA_ADD(at24mac_dev, 1);
 
-void board_init(void)
-{
-    /* initialize the on-board LED */
-    gpio_init(LED0_PIN, GPIO_OUT);
-    LED0_OFF;
+#endif /* MODULE_MTD_AT24CXXX */
 
-    /* initialize the on-board button */
-    gpio_init(BTN0_PIN, BTN0_MODE);
+#ifdef MODULE_SAM0_SDHC
+#include "mtd_sam0_sdhc.h"
+static mtd_sam0_sdhc_t sdhc_dev = {
+        .base = {
+            .driver = &mtd_sam0_sdhc_driver,
+        },
+        .state = {
+            .dev = SDHC1,
+            .cd  = GPIO_PIN(PD, 20),
+            .wp  = GPIO_PIN(PD, 21),
+        },
+    };
+MTD_XFA_ADD(sdhc_dev, 2);
 
-    /* initialize the CPU */
-    cpu_init();
-}
+#ifdef MODULE_VFS_DEFAULT
+/* default to FAT */
+#if defined(MODULE_FATFS_VFS)
+VFS_AUTO_MOUNT(fatfs, VFS_MTD(sdhc_dev), VFS_DEFAULT_SD(0), 1);
+/* but also support ext2/3/4 */
+#elif defined(MODULE_LWEXT4)
+VFS_AUTO_MOUNT(lwext4, VFS_MTD(sdhc_dev), VFS_DEFAULT_SD(0), 1);
+#endif
+#endif /* MODULE_VFS_DEFAULT */
+#endif /* MODULE_SAM0_SDHC */

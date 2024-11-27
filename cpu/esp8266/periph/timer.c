@@ -26,7 +26,6 @@
 #include "debug.h"
 #include "log.h"
 
-#include "xtimer.h"
 #include "periph/timer.h"
 
 #include "esp/common_macros.h"
@@ -49,6 +48,7 @@
 #define HW_TIMER_DELTA_MASK   0x00ffffff
 #define HW_TIMER_DELTA_RSHIFT 24
 #define HW_TIMER_CORRECTION   2             /* overhead in us */
+#define HW_TIMER_FREQUENCY    (1000000UL)   /* only 1MHz is supported */
 
 #define HW_TIMER_CLOCK             (APB_CLK_FREQ)
 
@@ -121,13 +121,8 @@ int timer_init (tim_t dev, uint32_t freq, timer_cb_t cb, void *arg)
           __func__, dev, freq, cb, arg);
 
     CHECK_PARAM_RET (dev  <  HW_TIMER_NUMOF, -1);
-    CHECK_PARAM_RET (freq == XTIMER_HZ_BASE, -1);
+    CHECK_PARAM_RET (freq == HW_TIMER_FREQUENCY, -1);
     CHECK_PARAM_RET (cb   != NULL, -1);
-
-    if (timers[dev].initialized) {
-        DEBUG("%s timer dev=%u is already initialized (used)\n", __func__, dev);
-        return -1;
-    }
 
     timers[dev].initialized = true;
     timers[dev].started     = false;
@@ -244,7 +239,6 @@ void IRAM timer_stop(tim_t dev)
     irq_restore (state);
 }
 
-
 static void IRAM __timer_channel_start (struct hw_timer_t* timer, struct hw_channel_t* channel)
 {
     if (!timer->started || !channel->used) {
@@ -318,11 +312,12 @@ void timer_print_config(void)
 #define OS_TIMER_DELTA_MASK   0x0000ffff
 #define OS_TIMER_DELTA_RSHIFT 16
 #define OS_TIMER_CORRECTION   4
+#define OS_TIMER_FREQUENCY    (1000000UL) /* only 1MHz is supported */
 
 extern void os_timer_arm_us(os_timer_t *ptimer, uint32_t time, bool repeat_flag);
 
 /* Since hardware timer FRC1 is needed to implement PWM, we have to map our */
-/* timer using the exsting ETS timer with 1 us clock rate */
+/* timer using the existing ETS timer with 1 us clock rate */
 
 struct phy_channel_t
 {
@@ -383,10 +378,10 @@ void IRAM os_timer_handler (void* arg)
 
 int timer_init (tim_t dev, uint32_t freq, timer_cb_t cb, void *arg)
 {
-    DEBUG("%s dev=%u freq=%lu cb=%p arg=%p\n", __func__, dev, freq, cb, arg);
+    DEBUG("%s dev=%u freq=%u cb=%p arg=%p\n", __func__, dev, freq, cb, arg);
 
     CHECK_PARAM_RET (dev  <  OS_TIMER_NUMOF, -1);
-    CHECK_PARAM_RET (freq == XTIMER_HZ_BASE, -1);
+    CHECK_PARAM_RET (freq == OS_TIMER_FREQUENCY, -1);
     CHECK_PARAM_RET (cb   != NULL, -1);
 
     if (timers[dev].initialized) {
@@ -505,7 +500,6 @@ void IRAM timer_stop(tim_t dev)
 
     irq_restore (state);
 }
-
 
 static void IRAM __timer_channel_start (struct phy_timer_t* timer, struct phy_channel_t* channel)
 {

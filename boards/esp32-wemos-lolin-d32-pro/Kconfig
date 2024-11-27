@@ -12,12 +12,5 @@ config BOARD_ESP32_WEMOS_LOLIN_D32_PRO
     default y
     select BOARD_COMMON_ESP32
     select CPU_MODEL_ESP32_WROVER
-    select HAS_ARDUINO
-    select HAS_ESP_SPI_RAM
-    select HAS_PERIPH_ADC
-    select HAS_PERIPH_DAC
-    select HAS_PERIPH_I2C
-    select HAS_PERIPH_PWM
-    select HAS_PERIPH_SPI
 
 source "$(RIOTBOARD)/common/esp32/Kconfig"

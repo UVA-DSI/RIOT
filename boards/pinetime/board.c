@@ -43,7 +43,6 @@ static const mtd_spi_nor_params_t _pinetime_nor_params = {
     .cs = PINETIME_NOR_SPI_CS,
     .wp = GPIO_UNDEF,
     .hold = GPIO_UNDEF,
-    .addr_width = 3,
 };
 
 static mtd_spi_nor_t pinetime_nor_dev = {
@@ -56,14 +55,11 @@ static mtd_spi_nor_t pinetime_nor_dev = {
     .params = &_pinetime_nor_params,
 };
 
-mtd_dev_t *mtd0 = (mtd_dev_t *)&pinetime_nor_dev;
+MTD_XFA_ADD(pinetime_nor_dev, 0);
 #endif /* MODULE_MTD */
 
 void board_init(void)
 {
-    /* initialize the CPU */
-    cpu_init();
-
     /* initialize pins */
     gpio_init(VCC33, GPIO_OUT);
     gpio_init(BUTTON0_ENABLE, GPIO_OUT);

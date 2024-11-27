@@ -7,8 +7,5 @@
 config BOARD_COMMON_E104_BT50XXA_TB
     bool
     select BOARD_COMMON_NRF52
-    select HAS_PERIPH_I2C
-    select HAS_PERIPH_SPI
-    select HAS_PERIPH_UART
 
 source "$(RIOTBOARD)/common/nrf52/Kconfig"

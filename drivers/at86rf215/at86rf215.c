@@ -31,7 +31,7 @@
 
 static void _setup_interface(at86rf215_t *dev, const at86rf215_params_t *params, uint8_t index)
 {
-    netdev_t *netdev = (netdev_t *)dev;
+    netdev_t *netdev = &dev->netdev.netdev;
 
     netdev->driver = &at86rf215_driver;
     dev->params = *params;
@@ -82,7 +82,7 @@ void at86rf215_reset_and_cfg(at86rf215_t *dev)
 
     dev->flags |= AT86RF215_OPT_AUTOACK
                |  AT86RF215_OPT_CSMA
-#if CONFIG_AT86RF215_RPC
+#if CONFIG_AT86RF215_RPC_EN
                |  AT86RF215_OPT_RPC
 #endif
                ;
@@ -91,8 +91,10 @@ void at86rf215_reset_and_cfg(at86rf215_t *dev)
     at86rf215_reset(dev);
 
     /* default to requesting ACKs, just like at86rf2xx */
-    const netopt_enable_t enable = NETOPT_ENABLE;
-    netdev_ieee802154_set(&dev->netdev, NETOPT_ACK_REQ, &enable, sizeof(enable));
+    static const netopt_enable_t ack_req =
+            IS_ACTIVE(CONFIG_IEEE802154_DEFAULT_ACK_REQ) ? NETOPT_ENABLE : NETOPT_DISABLE;
+    netdev_ieee802154_set(&dev->netdev, NETOPT_ACK_REQ,
+                          &ack_req, sizeof(ack_req));
 
     /* enable RX start IRQs */
     at86rf215_reg_or(dev, dev->BBC->RG_IRQM, BB_IRQ_RXAM);
@@ -242,51 +244,14 @@ static bool _tx_ongoing(at86rf215_t *dev)
     return false;
 }
 
-/*
- * As there is no packet queue in RIOT we have to block in send()
- * when the device is busy sending a previous frame.
- *
- * Since both _send() and _isr() are running in the same thread
- * we have to service radio events while waiting in order to
- * advance the previous transmission.
- */
-static void _block_while_busy(at86rf215_t *dev)
-{
-    gpio_irq_disable(dev->params.int_pin);
-
-    do {
-        if (gpio_read(dev->params.int_pin) || dev->timeout) {
-            at86rf215_driver.isr((netdev_t *) dev);
-        }
-        /* allow the other interface to process events */
-        thread_yield();
-    } while (_tx_ongoing(dev));
-
-    gpio_irq_enable(dev->params.int_pin);
-}
-
-static void at86rf215_block_while_busy(at86rf215_t *dev)
-{
-    if (!IS_ACTIVE(MODULE_AT86RF215_BLOCKING_SEND)) {
-        return;
-    }
-
-    if (_tx_ongoing(dev)) {
-        DEBUG("[at86rf215] Block while TXing\n");
-        _block_while_busy(dev);
-    }
-}
-
 int at86rf215_tx_prepare(at86rf215_t *dev)
 {
     if (dev->state == AT86RF215_STATE_SLEEP) {
-        return -EAGAIN;
+        return -ENETDOWN;
     }
 
-    if (!IS_ACTIVE(MODULE_AT86RF215_BLOCKING_SEND) && _tx_ongoing(dev)) {
+    if (_tx_ongoing(dev)) {
         return -EBUSY;
-    } else {
-        at86rf215_block_while_busy(dev);
     }
 
     dev->tx_frame_len = IEEE802154_FCS_LEN;

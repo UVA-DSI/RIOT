@@ -19,7 +19,7 @@
 #include <stdlib.h>
 
 #include "log.h"
-#include "xtimer.h"
+#include "ztimer.h"
 
 #include "ccs811_regs.h"
 #include "ccs811.h"
@@ -82,11 +82,11 @@ int ccs811_init(ccs811_t *dev, const ccs811_params_t *params)
         /* enable low active reset signal */
         gpio_clear(dev->params.reset_pin);
         /* t_RESET (reset impuls) has to be at least 20 us, we wait 1 ms */
-        xtimer_usleep(1000);
+        ztimer_sleep(ZTIMER_USEC, 1000);
         /* disable low active reset signal */
         gpio_set(dev->params.reset_pin);
         /* t_START after reset is 1 ms, we wait 1 further ms */
-        xtimer_usleep(1000);
+        ztimer_sleep(ZTIMER_USEC, 1000);
     }
 
     if (gpio_is_valid(dev->params.wake_pin) &&
@@ -112,7 +112,7 @@ int ccs811_init(ccs811_t *dev, const ccs811_params_t *params)
     uint8_t status;
 
     /* wait 100 ms after the reset */
-    xtimer_usleep(100000);
+    ztimer_sleep(ZTIMER_USEC, 100000);
 
     /* get the status to check whether sensor is in bootloader mode */
     if (_reg_read(dev, CCS811_REG_STATUS, &status, 1) != CCS811_OK) {
@@ -139,7 +139,7 @@ int ccs811_init(ccs811_t *dev, const ccs811_params_t *params)
         }
 
         /* wait 100 ms after starting the app */
-        xtimer_usleep(100000);
+        ztimer_sleep(ZTIMER_USEC, 100000);
 
         /* get the status to check whether sensor switched to application mode */
         if (_reg_read(dev, CCS811_REG_STATUS, &status, 1) != CCS811_OK) {
@@ -163,7 +163,6 @@ int ccs811_init(ccs811_t *dev, const ccs811_params_t *params)
     /* try to set default measurement mode */
     return ccs811_set_mode(dev, dev->params.mode);
 }
-
 
 int ccs811_set_mode(ccs811_t *dev, ccs811_mode_t mode)
 {
@@ -299,15 +298,6 @@ int ccs811_read_iaq(const ccs811_t *dev,
     /* check for errors */
     if (data[CCS811_ALG_DATA_STATUS] & CCS811_STATUS_ERROR) {
         return _error_code(dev, data[CCS811_ALG_DATA_ERROR_ID]);
-    }
-
-    /*
-     * check whether new data are ready to read; if not, latest values read
-     * from sensor are used and error code CCS811_ERROR_NO_NEW_DATA is returned
-     */
-    if (!(data[CCS811_ALG_DATA_STATUS] & CCS811_STATUS_DATA_RDY)) {
-        DEBUG_DEV("no new data", dev);
-        res = -CCS811_ERROR_NO_NEW_DATA;
     }
 
     /* if *iaq* is not NULL return IAQ sensor values */
@@ -483,19 +473,16 @@ static int _reg_read(const ccs811_t *dev, uint8_t reg, uint8_t *data, uint32_t l
     DEBUG_DEV("read %"PRIu32" bytes from sensor registers starting at addr %02x",
               dev, len, reg);
 
-    int res = CCS811_OK;
+    int res;
 
-    if (i2c_acquire(dev->params.i2c_dev) != CCS811_OK) {
-        DEBUG_DEV("could not acquire I2C bus", dev);
-        return -CCS811_ERROR_I2C;
-    }
+    i2c_acquire(dev->params.i2c_dev);
 
 #if MODULE_CCS811_FULL
     if (gpio_is_valid(dev->params.wake_pin)) {
         /* wake the sensor with low active WAKE signal */
         gpio_clear(dev->params.wake_pin);
         /* t_WAKE is 50 us */
-        xtimer_usleep(50);
+        ztimer_sleep(ZTIMER_USEC, 50);
     }
 #endif
 
@@ -507,7 +494,7 @@ static int _reg_read(const ccs811_t *dev, uint8_t reg, uint8_t *data, uint32_t l
         /* let the sensor enter to sleep mode */
         gpio_set(dev->params.wake_pin);
         /* minimum t_DWAKE is 20 us */
-        xtimer_usleep(20);
+        ztimer_sleep(ZTIMER_USEC, 20);
     }
 #endif
 
@@ -546,17 +533,14 @@ static int _reg_write(const ccs811_t *dev, uint8_t reg, uint8_t *data, uint32_t 
         printf("\n");
     }
 
-    if (i2c_acquire(dev->params.i2c_dev)) {
-        DEBUG_DEV("could not acquire I2C bus", dev);
-        return -CCS811_ERROR_I2C;
-    }
+    i2c_acquire(dev->params.i2c_dev);
 
 #if MODULE_CCS811_FULL
     if (gpio_is_valid(dev->params.wake_pin)) {
         /* wake the sensor with low active WAKE signal */
         gpio_clear(dev->params.wake_pin);
         /* t_WAKE is 50 us */
-        xtimer_usleep(50);
+        ztimer_sleep(ZTIMER_USEC, 50);
     }
 #endif
 
@@ -573,7 +557,7 @@ static int _reg_write(const ccs811_t *dev, uint8_t reg, uint8_t *data, uint32_t 
         /* let the sensor enter to sleep mode */
         gpio_set(dev->params.wake_pin);
         /* minimum t_DWAKE is 20 us */
-        xtimer_usleep(20);
+        ztimer_sleep(ZTIMER_USEC, 20);
     }
 #endif
 

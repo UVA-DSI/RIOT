@@ -20,6 +20,7 @@
 #if __has_include("eui_provider_params.h")
 #include "eui_provider_params.h"
 #endif
+#include "board.h"
 #include "net/eui_provider.h"
 
 #ifdef __cplusplus
@@ -65,7 +66,6 @@ extern "C" {
                                  .index    = EUI64_PROVIDER_INDEX, \
                                 },
 #endif
-
 
 /**
  * @name    EUI-64 sources on the board

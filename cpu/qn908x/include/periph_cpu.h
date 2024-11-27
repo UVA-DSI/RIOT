@@ -141,11 +141,11 @@ enum {
     GPIO_PORTS_NUMOF        /**< overall number of available ports */
 };
 
+#if DOXYGEN
 /**
  * @name    ADC CPU configuration
  * @{
  */
-#if DOXYGEN
 /**
  * @brief Define if ADC external capacitor is connected to PA06 pin.
  *
@@ -154,6 +154,7 @@ enum {
  * macro should be defined by the board to make the ADC block use it.
  */
 #define BOARD_HAS_ADC_PA06_CAP
+/** @} */
 #endif
 
 #ifndef DOXYGEN
@@ -206,9 +207,7 @@ typedef enum {
  * Define to one of the qn908x_adc_clock_t values.
  */
 #define QN908X_ADC_CLOCK
-/** @} */
 #endif /* ifdef DOXYGEN */
-
 
 /**
  * @brief   ADC channel pair configuration
@@ -329,14 +328,17 @@ typedef enum {
  * lines in the board, just using different adc_conf_t entries.
  */
 typedef uint16_t adc_conf_t;
-/** @} */
 
 /**
  * @brief   CPU specific timer Counter/Timers (CTIMER) configuration
  * @{
  */
-#define TIMER_CHANNELS      (4)
+#define TIMER_CHANNEL_NUMOF (4)
 #define TIMER_MAX_VALUE     (0xffffffff)
+/**
+ * @brief   The nRF5x periph_timer implements timer_set()
+ */
+#define PERIPH_TIMER_PROVIDES_SET   1
 /** @} */
 
 /**

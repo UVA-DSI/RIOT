@@ -52,7 +52,6 @@ int gnrc_ipv6_nib_pl_set(unsigned iface,
     }
 #ifdef MODULE_GNRC_NETIF
     gnrc_netif_t *netif = gnrc_netif_get_by_pid(iface);
-    int idx;
 
     if (netif == NULL) {
         _nib_release();
@@ -64,12 +63,12 @@ int gnrc_ipv6_nib_pl_set(unsigned iface,
      * address resolution towards the LoWPAN and not the upstream interface
      * See https://github.com/RIOT-OS/RIOT/pull/10627 and follow-ups
      */
-    if ((!gnrc_netif_is_6ln(netif) || gnrc_netif_is_6lbr(netif)) &&
-        ((idx = gnrc_netif_ipv6_addr_match(netif, pfx)) >= 0) &&
-        (ipv6_addr_match_prefix(&netif->ipv6.addrs[idx], pfx) >= pfx_len)) {
+    if (!gnrc_netif_is_6ln(netif) || gnrc_netif_is_6lbr(netif)) {
         dst->flags |= _PFX_ON_LINK;
     }
-    if (netif->ipv6.aac_mode & GNRC_NETIF_AAC_AUTO) {
+
+    /* Auto-configuration only works if the prefix is more than a single address */
+    if ((netif->ipv6.aac_mode & GNRC_NETIF_AAC_AUTO) && (pfx_len < 128)) {
         dst->flags |= _PFX_SLAAC;
     }
 #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_6LBR) && IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_MULTIHOP_P6C)
@@ -104,17 +103,18 @@ void gnrc_ipv6_nib_pl_del(unsigned iface,
         if ((pfx_len == dst->pfx_len) &&
             ((iface == 0) || (iface == _nib_onl_get_if(dst->next_hop))) &&
             (ipv6_addr_match_prefix(pfx, &dst->pfx) >= pfx_len)) {
-            _nib_pl_remove(dst);
-            _nib_release();
+
+            /* notify downstream nodes about the prefix removal */
 #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ROUTER)
             gnrc_netif_t *netif = gnrc_netif_get_by_pid(iface);
 
-            if (netif) {
-                /* update prefixes down-stream */
-                _handle_snd_mc_ra(netif);
+            if (netif && (netif->flags & GNRC_NETIF_FLAGS_IPV6_RTR_ADV)) {
+                _snd_rtr_advs_drop_pfx(netif, &ipv6_addr_all_nodes_link_local, dst);
             }
 #endif
-            return;
+            /* remove the prefix & associated address*/
+            _nib_offl_remove_prefix(dst);
+            break;
         }
     }
     _nib_release();
@@ -158,7 +158,7 @@ void gnrc_ipv6_nib_pl_print(gnrc_ipv6_nib_pl_t *entry)
         printf(" expires %lu sec", (entry->valid_until - now) / MS_PER_SEC);
     }
     if (entry->pref_until < UINT32_MAX) {
-        printf(" deprecates %lu sec", (entry->pref_until - now) / MS_PER_SEC);
+        printf(" deprecates %lu sec", (now >= entry->pref_until ? 0 : entry->pref_until - now) / MS_PER_SEC);
     }
     puts("");
 }

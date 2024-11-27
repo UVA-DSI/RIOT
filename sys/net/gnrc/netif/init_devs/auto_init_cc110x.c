@@ -23,28 +23,15 @@
 #include "cc1xxx_common.h"
 #include "cc110x_params.h"
 #include "log.h"
-#include "msg.h"
-#include "net/gnrc/netif/conf.h"    /* <- GNRC_NETIF_MSG_QUEUE_SIZE */
+#include "include/init_devs.h"
 
 #define ENABLE_DEBUG 0
 #include "debug.h"
 
-#ifndef CC110X_EXTRA_STACKSIZE
-/**
- * @brief   Additional stack size required by the driver
- *
- * With increasing of GNRC_NETIF_MSG_QUEUE_SIZE the required stack size
- * increases as well. A queue size of 8 messages works with default stack size,
- * so we increase the stack by `sizeof(msg_t)` for each additional element
- */
-#define CC110X_EXTRA_STACKSIZE          ((GNRC_NETIF_MSG_QUEUE_SIZE - 8) * sizeof(msg_t))
-#endif
-
 /**
  * @brief   Calculate the stack size for the MAC layer thread(s)
  */
-#define CC110X_MAC_STACKSIZE            (THREAD_STACKSIZE_DEFAULT + \
-                                        CC110X_EXTRA_STACKSIZE + \
+#define CC110X_MAC_STACKSIZE            (GNRC_NETIF_STACKSIZE_DEFAULT + \
                                         DEBUG_EXTRA_STACKSIZE)
 #ifndef CC110X_MAC_PRIO
 /**
@@ -75,7 +62,7 @@ void auto_init_cc110x(void)
 
         cc110x_setup(&_cc110x_devs[i], &cc110x_params[i], i);
         gnrc_netif_cc1xxx_create(&_netif[i], stacks[i], CC110X_MAC_STACKSIZE, CC110X_MAC_PRIO,
-                                 "cc110x", (netdev_t *)&_cc110x_devs[i]);
+                                 "cc110x", &_cc110x_devs[i].netdev);
     }
 }
 /** @} */

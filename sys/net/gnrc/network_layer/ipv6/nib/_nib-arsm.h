@@ -163,7 +163,6 @@ void _probe_nbr(_nib_onl_entry_t *nbr, bool reset);
 void _handle_adv_l2(gnrc_netif_t *netif, _nib_onl_entry_t *nce,
                     const icmpv6_hdr_t *icmpv6, const ndp_opt_t *tl2ao);
 
-
 /**
  * @brief   Recalculates the (randomized) reachable time of on a network
  *          interface.
@@ -175,13 +174,21 @@ void _handle_adv_l2(gnrc_netif_t *netif, _nib_onl_entry_t *nce,
 void _recalc_reach_time(gnrc_netif_ipv6_t *netif);
 
 /**
- * @brief   Sets a neighbor cache entry reachable and starts the required
+ * @brief   Sets a neighbor cache entry REACHABLE and starts the required
  *          event timers
  *
  * @param[in] netif Interface to the NCE
- * @param[in] nce   The neighbor cache entry to set reachable
+ * @param[in] nce   The neighbor cache entry to set REACHABLE
  */
 void _set_reachable(gnrc_netif_t *netif, _nib_onl_entry_t *nce);
+
+/**
+ * @brief   Sets a neighbor cache entry UNREACHABLE and flushes its packet queue
+ *
+ * @param[in] netif Interface to the NCE
+ * @param[in] nce   The neighbor cache entry to set UNREACHABLE
+ */
+void _set_unreachable(gnrc_netif_t *netif, _nib_onl_entry_t *nce);
 
 /**
  * @brief   Initializes interface for address registration state machine
@@ -192,6 +199,16 @@ static inline void _init_iface_arsm(gnrc_netif_t *netif)
 {
     netif->ipv6.reach_time_base = NDP_REACH_MS;
     _recalc_reach_time(&netif->ipv6);
+}
+
+/**
+ * @brief   Deinitializes interface from address registration state machine
+ *
+ * @param[in] netif An interface
+ */
+static inline void _deinit_iface_arsm(gnrc_netif_t *netif)
+{
+    _evtimer_del(&netif->ipv6.recalc_reach_time);
 }
 
 /**
@@ -233,14 +250,14 @@ bool _is_reachable(_nib_onl_entry_t *entry);
 #define _handle_state_timeout(ctx)                  (void)ctx
 #define _probe_nbr(nbr, reset)                      (void)nbr; (void)reset
 #define _init_iface_arsm(netif)                     (void)netif
+#define _deinit_iface_arsm(netif)                   (void)netif
 #define _handle_adv_l2(netif, nce, icmpv6, tl2ao)   (void)netif; (void)nce; \
                                                     (void)icmpv6; (void)tl2ao
 #define _recalc_reach_time(netif)                   (void)netif
 #define _set_reachable(netif, nce)                  (void)netif; (void)nce
-#define _init_iface_arsm(netif)                     (void)netif
 
 #define _get_nud_state(nbr)                 (GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNMANAGED)
-#define _set_nud_state(netif, nce, state)   (void)netif; (void)nbr; (void)state
+#define _set_nud_state(netif, nce, state)   (void)netif; (void)nce; (void)state
 #define _is_reachable(entry)                (true)
 #endif  /* CONFIG_GNRC_IPV6_NIB_ARSM || defined(DOXYGEN) */
 
@@ -249,4 +266,5 @@ bool _is_reachable(_nib_onl_entry_t *entry);
 #endif
 
 #endif /* PRIV_NIB_ARSM_H */
-/** @} */
+/** @internal
+ * @} */

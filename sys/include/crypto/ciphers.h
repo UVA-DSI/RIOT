@@ -23,7 +23,7 @@
 #define CRYPTO_CIPHERS_H
 
 #include <stdint.h>
-#include "kernel_defines.h"
+#include "modules.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,7 +80,6 @@ typedef struct {
     uint8_t context[CIPHER_MAX_CONTEXT_SIZE];   /**< buffer for cipher operations */
 } cipher_context_t;
 
-
 /**
  * @brief   BlockCipher-Interface for the Cipher-Algorithms
  */
@@ -105,16 +104,8 @@ typedef struct cipher_interface_st {
                    uint8_t *plain_block);
 } cipher_interface_t;
 
-
+/** Pointer type to BlockCipher-Interface for the Cipher-Algorithms */
 typedef const cipher_interface_t *cipher_id_t;
-
-/**
- * @brief AES_128 cipher id
- *
- * @deprecated Use @ref CIPHER_AES instead. Will be removed after 2021.07
- * release.
- */
-extern const cipher_id_t CIPHER_AES_128;
 
 /**
  * @brief AES cipher id
@@ -131,7 +122,6 @@ typedef struct {
     cipher_context_t context;               /**< The encryption context (buffer)
                                                  for the algorithm */
 } cipher_t;
-
 
 /**
  * @brief Initialize new cipher state
@@ -151,7 +141,6 @@ typedef struct {
 int cipher_init(cipher_t *cipher, cipher_id_t cipher_id, const uint8_t *key,
                 uint8_t key_size);
 
-
 /**
  * @brief Encrypt data of BLOCK_SIZE length
  * *
@@ -167,7 +156,6 @@ int cipher_init(cipher_t *cipher, cipher_id_t cipher_id, const uint8_t *key,
  */
 int cipher_encrypt(const cipher_t *cipher, const uint8_t *input,
                    uint8_t *output);
-
 
 /**
  * @brief Decrypt data of BLOCK_SIZE length
@@ -185,7 +173,6 @@ int cipher_encrypt(const cipher_t *cipher, const uint8_t *input,
 int cipher_decrypt(const cipher_t *cipher, const uint8_t *input,
                    uint8_t *output);
 
-
 /**
  * @brief Get block size of cipher
  * *
@@ -195,7 +182,6 @@ int cipher_decrypt(const cipher_t *cipher, const uint8_t *input,
  * @return           The cipher's block size (in bytes)
  */
 int cipher_get_block_size(const cipher_t *cipher);
-
 
 #ifdef __cplusplus
 }

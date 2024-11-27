@@ -26,6 +26,20 @@
 #define CONFIG_BOARD_HAS_LSE            1
 #endif
 
+/**
+ * @brief   This board has an HSE clock
+ */
+#ifndef CONFIG_BOARD_HAS_HSE
+#define CONFIG_BOARD_HAS_HSE            1
+#endif
+
+/**
+ * @brief   Speed of the HSE clock in Hz
+ */
+#ifndef CONFIG_CLOCK_HSE
+#define CONFIG_CLOCK_HSE                       MHZ(16)
+#endif
+
 #include "periph_cpu.h"
 #include "clk_conf.h"
 
@@ -84,7 +98,7 @@ static const spi_conf_t spi_config[] = {
         .mosi_pin = GPIO_PIN(PORT_A, 7),
         .miso_pin = GPIO_PIN(PORT_A, 6),
         .sclk_pin = GPIO_PIN(PORT_A, 5),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .mosi_af  = GPIO_AF5,
         .miso_af  = GPIO_AF5,
         .sclk_af  = GPIO_AF5,

@@ -9,8 +9,9 @@ doc/doxygen/man
 doc/doxygen/*.log
 doc/doxygen/*.db
 doc/doxygen/*.tmp
-# Built binaries
-*bin
+# bin (e.g.:build directory) and .bin files
+bin
+*.bin
 # Build directory
 /build
 # AFL findings
@@ -21,6 +22,8 @@ fuzzing/**/findings/
 .*.swn
 .*.swo
 .*.swp
+*.save
+*.rej
 \#*\#
 cachegrind.out*
 # Eclipse workspace files
@@ -34,7 +37,8 @@ cachegrind.out*
 # Codelite (among others) project files
 *.project
 # Visual Studio Code user settings
-.vscode/
+.vscode/*
+!.vscode/settings.json
 # ctags index files
 tags
 # GDB initialization scripts
@@ -87,3 +91,10 @@ keys/
 
 # clangd language server
 .clangd/
+
+# custom clang-tidy flags, also used when using clangd language server
+.clang-tidy
+
+# Environments
+.venv
+venv/

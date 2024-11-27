@@ -3,6 +3,7 @@ CPU_FAM = cc2538
 
 FEATURES_PROVIDED += periph_cpuid
 FEATURES_PROVIDED += periph_flashpage
+FEATURES_PROVIDED += periph_flashpage_in_address_space
 FEATURES_PROVIDED += periph_flashpage_pagewise
 FEATURES_PROVIDED += periph_gpio periph_gpio_irq
 FEATURES_PROVIDED += periph_hwrng
@@ -13,5 +14,10 @@ FEATURES_PROVIDED += periph_rtt_overflow
 FEATURES_PROVIDED += periph_wdt
 
 FEATURES_PROVIDED += cortexm_mpu
+
+# MCU has a peripheral network interface
+FEATURES_PROVIDED += netif
+# the integrated netif is supported by OpenWSN
+FEATURES_PROVIDED += netif_openwsn
 
 include $(RIOTCPU)/cortexm_common/Makefile.features

@@ -33,6 +33,16 @@ extern "C" {
 * @name    Clock configuration
 * @{
 */
+
+#ifndef DOXYGEN
+/* Mapping of Kconfig defines to the respective enumeration values */
+#if CONFIG_ESP8266_CPU_FREQUENCY_80
+#define ESP8266_CPU_FREQUENCY   80
+#elif CONFIG_ESP8266_CPU_FREQUENCY_160
+#define ESP8266_CPU_FREQUENCY   160
+#endif
+#endif
+
 /**
  * @brief   Defines the CPU frequency in MHz
  *
@@ -41,6 +51,10 @@ extern "C" {
 #ifndef ESP8266_CPU_FREQUENCY
 #define ESP8266_CPU_FREQUENCY   (80)
 #endif
+
+/**
+ * @brief   Mapping configured ESP8266 default clock to CLOCK_CORECLOCK define
+ */
 #define CLOCK_CORECLOCK         (1000000UL * ESP8266_CPU_FREQUENCY)
 /** @} */
 
@@ -51,14 +65,25 @@ extern "C" {
 #ifndef THREAD_EXTRA_STACKSIZE_PRINTF
 #define THREAD_EXTRA_STACKSIZE_PRINTF (0)
 #endif
+
 #ifndef THREAD_STACKSIZE_DEFAULT
 #define THREAD_STACKSIZE_DEFAULT      (1024)
 #endif
+
 #ifndef THREAD_STACKSIZE_IDLE
 #define THREAD_STACKSIZE_IDLE         (1024)
 #endif
+
 #ifndef THREAD_STACKSIZE_MAIN
 #define THREAD_STACKSIZE_MAIN         (3072)
+#endif
+
+#ifndef THREAD_STACKSIZE_SMALL
+#define THREAD_STACKSIZE_SMALL        (THREAD_STACKSIZE_MEDIUM * 3 / 2)
+#endif
+
+#ifndef THREAD_STACKSIZE_TINY
+#define THREAD_STACKSIZE_TINY         (THREAD_STACKSIZE_MEDIUM / 2)
 #endif
 
 #ifndef GNRC_IPV6_STACK_SIZE
@@ -75,6 +100,12 @@ extern "C" {
 #ifndef TCPIP_THREAD_STACKSIZE
 #define TCPIP_THREAD_STACKSIZE        (3072)
 #endif
+
+#ifndef ESP_WIFI_STACKSIZE
+/** Stack size for the WiFi thread */
+#define ESP_WIFI_STACKSIZE            (1536)
+#endif
+
 /** @} */
 
 /**

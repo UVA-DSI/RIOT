@@ -18,8 +18,6 @@
  * @}
  */
 
-#include <avr/pgmspace.h>
-
 #include "cpu.h"
 #include "cpu_clock.h"
 #include "cpu_pm.h"
@@ -112,7 +110,7 @@ void __attribute__((weak)) avr8_clk_init(void)
  * create a catch-all for undefined but used ISRs for debugging
  * purposes.
  */
-ISR(BADISR_vect)
+ISR(BADISR_vect, ISR_NAKED)
 {
     avr8_reset_cause();
 
@@ -121,7 +119,5 @@ ISR(BADISR_vect)
     LED_PANIC;
 #endif
 
-    core_panic(PANIC_GENERAL_ERROR,
-               PSTR("FATAL ERROR: BADISR_vect called, unprocessed Interrupt.\n"
-                    "STOP Execution.\n"));
+    core_panic(PANIC_GENERAL_ERROR, "BADISR");
 }

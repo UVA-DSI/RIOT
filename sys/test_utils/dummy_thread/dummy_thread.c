@@ -21,8 +21,8 @@
  * This module can be used by manually adding it to the command line when
  * building, e.g.,
  *
- *     USEMODULE+=dummy_thread make -C tests/rmutex
- *     make -C tests/rmutex test
+ *     USEMODULE+=dummy_thread make -C tests/core/rmutex
+ *     make -C tests/core/rmutex test
  *
  * Note how the output of the test changes compared to a build without
  * dummy_thread.
@@ -50,8 +50,6 @@ void dummy_thread_create(void)
 {
     thread_create(_dummy_stack, sizeof(_dummy_stack),
                   THREAD_PRIORITY_IDLE,
-                  THREAD_CREATE_WOUT_YIELD \
-                  | THREAD_CREATE_STACKTEST \
-                  | THREAD_CREATE_SLEEPING,
+                  THREAD_CREATE_WOUT_YIELD | THREAD_CREATE_SLEEPING,
                   _dummy_thread, NULL, "dummy");
 }

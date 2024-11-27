@@ -49,7 +49,7 @@
  * and on TXREADY to TXSTART, without requiring to trigger the task manually.
  */
 #define DEFAULT_SHORTS      (RADIO_SHORTS_RXREADY_START_Msk | \
-                             RADIO_SHORTS_TXREADY_START_Msk);
+                             RADIO_SHORTS_TXREADY_START_Msk)
 
 /**
  * @brief nrf52840 shortcuts for CCA on send
@@ -62,7 +62,7 @@
                              RADIO_SHORTS_CCAIDLE_STOP_Msk | \
                              RADIO_SHORTS_CCAIDLE_TXEN_Msk | \
                              RADIO_SHORTS_CCABUSY_DISABLE_Msk | \
-                             RADIO_SHORTS_TXREADY_START_Msk);
+                             RADIO_SHORTS_TXREADY_START_Msk)
 
 #define MAC_TIMER_CHAN_ACK  (0U)    /**< MAC timer channel for transmitting an ACK frame */
 #define MAC_TIMER_CHAN_IFS  (1U)    /**< MAC timer channel for handling IFS logic */
@@ -98,10 +98,7 @@ static struct {
 };
 
 static const ieee802154_radio_ops_t nrf802154_ops;
-
-ieee802154_dev_t nrf802154_hal_dev = {
-    .driver = &nrf802154_ops,
-};
+static ieee802154_dev_t *nrf802154_hal_dev;
 
 static void _power_on(void)
 {
@@ -127,6 +124,11 @@ static bool _l2filter(uint8_t *mhr)
 
     int addr_len = ieee802154_get_dst(mhr, dst_addr, &dst_pan);
 
+    if ((mhr[0] & IEEE802154_FCF_TYPE_MASK) == IEEE802154_FCF_TYPE_BEACON) {
+        if ((memcmp(&nrf802154_pan_id, pan_bcast, 2) == 0)) {
+            return true;
+        }
+    }
     /* filter PAN ID */
     /* Will only work on little endian platform (all?) */
 
@@ -174,47 +176,134 @@ static int _write(ieee802154_dev_t *dev, const iolist_t *iolist)
     /* specify the length of the package. */
     txbuf[0] = len + IEEE802154_FCS_LEN;
 
-    return len;
-}
-
-static int _confirm_transmit(ieee802154_dev_t *dev, ieee802154_tx_info_t *info)
-{
-    (void) dev;
-
-    if (_state != STATE_IDLE
-        && _state != STATE_CCA_BUSY && NRF_RADIO->STATE != RADIO_STATE_STATE_Disabled) {
-        return -EAGAIN;
-    }
-
-    if (info) {
-        info->status = (_state == STATE_CCA_BUSY) ? TX_STATUS_MEDIUM_BUSY : TX_STATUS_SUCCESS;
-    }
-
-    _state = STATE_IDLE;
-    NRF_RADIO->SHORTS = DEFAULT_SHORTS;
-    DEBUG("[nrf802154] TX Finished\n");
-
     return 0;
 }
 
-static int _request_transmit(ieee802154_dev_t *dev)
+static void _disable(void)
+{
+    /* set device into DISABLED state */
+    if (NRF_RADIO->STATE != RADIO_STATE_STATE_Disabled) {
+        NRF_RADIO->EVENTS_DISABLED = 0;
+        NRF_RADIO->TASKS_DISABLE = 1;
+        DEBUG("[nrf802154] Device state: DISABLED\n");
+    }
+}
+
+static void _disable_blocking(void)
+{
+    _disable();
+
+    /* This will take in worst case 21 us */
+    while (NRF_RADIO->STATE != RADIO_STATE_STATE_Disabled) {};
+}
+
+static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
 {
     (void) dev;
-    if (cfg.ifs) {
-        return -EBUSY;
-    }
 
-    _state = STATE_TX;
-    if (cfg.cca_send) {
-        DEBUG("[nrf802154] Transmit a frame using CCA\n");
-        NRF_RADIO->SHORTS = CCA_SHORTS;
-        NRF_RADIO->TASKS_RXEN = 1;
-    }
-    else {
-        DEBUG("[nrf802154] Transmit a frame using Direct Transmission\n");
+    int res = -EBUSY;
+    int state = STATE_IDLE;
+
+    switch (op) {
+    case IEEE802154_HAL_OP_TRANSMIT:
+        if (cfg.ifs) {
+            goto end;
+        }
+        NRF_RADIO->SHORTS = cfg.cca_send ? CCA_SHORTS : DEFAULT_SHORTS;
         NRF_RADIO->TASKS_TXEN = 1;
+        state = STATE_TX;
+        break;
+    case IEEE802154_HAL_OP_SET_RX:
+        if (_state != STATE_IDLE && _state != STATE_RX) {
+            goto end;
+        }
+        _disable_blocking();
+        state = STATE_RX;
+        NRF_RADIO->PACKETPTR = (uint32_t) rxbuf;
+        NRF_RADIO->SHORTS = DEFAULT_SHORTS;
+        NRF_RADIO->TASKS_RXEN = 1;
+        break;
+    case IEEE802154_HAL_OP_SET_IDLE: {
+        assert(ctx);
+        bool force = *((bool*) ctx);
+        if (!force && _state != STATE_IDLE && _state != STATE_RX) {
+            goto end;
+        }
+        _disable_blocking();
+        NRF_RADIO->SHORTS = DEFAULT_SHORTS;
+        NRF_RADIO->PACKETPTR = (uint32_t) txbuf;
+        state = STATE_IDLE;
+        break;
+    }
+    case IEEE802154_HAL_OP_CCA:
+        _disable_blocking();
+        NRF_RADIO->SHORTS = RADIO_SHORTS_RXREADY_CCASTART_Msk;
+        NRF_RADIO->TASKS_RXEN = 1;
+        state = STATE_IDLE;
+        break;
+    default:
+        assert(false);
+        state = 0;
+        break;
     }
 
+    _state = state;
+    res = 0;
+
+end:
+    return res;
+}
+
+static int _confirm_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
+{
+    (void) dev;
+    bool eagain;
+    ieee802154_tx_info_t *info = ctx;
+    int state = _state;
+    bool enable_shorts = false;
+    int radio_state = NRF_RADIO->STATE;
+    switch (op) {
+    case IEEE802154_HAL_OP_TRANSMIT:
+        info = ctx;
+        eagain = (state != STATE_IDLE
+            && state != STATE_CCA_BUSY && NRF_RADIO->STATE != RADIO_STATE_STATE_Disabled);
+
+        state = STATE_IDLE;
+        enable_shorts = true;
+        if (info) {
+            info->status = (_state == STATE_CCA_BUSY) ? TX_STATUS_MEDIUM_BUSY : TX_STATUS_SUCCESS;
+        }
+
+        break;
+    case IEEE802154_HAL_OP_SET_RX:
+        eagain = (radio_state == RADIO_STATE_STATE_RxRu);
+        break;
+    case IEEE802154_HAL_OP_SET_IDLE:
+        eagain = (radio_state == RADIO_STATE_STATE_TxDisable ||
+                  radio_state == RADIO_STATE_STATE_RxDisable);
+        break;
+    case IEEE802154_HAL_OP_CCA:
+        eagain = (state != STATE_CCA_BUSY && state != STATE_CCA_CLEAR);
+        assert(ctx);
+        *((bool*) ctx) = (state == STATE_CCA_CLEAR) ? true : false;
+        state = STATE_IDLE;
+        break;
+    default:
+        eagain = false;
+        assert(false);
+        break;
+    }
+
+    if (eagain) {
+        return -EAGAIN;
+    }
+
+    _state = state;
+
+    if (enable_shorts) {
+        NRF_RADIO->SHORTS = DEFAULT_SHORTS;
+        DEBUG("[nrf802154] TX Finished\n");
+    }
     return 0;
 }
 
@@ -248,53 +337,18 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
             radio_info->lqi = (uint8_t)(hwlqi > UINT8_MAX/ED_RSSISCALE
                                        ? UINT8_MAX
                                        : hwlqi * ED_RSSISCALE);
-            /* We calculate RSSI from LQI, since it's already 8-bit
-               saturated (see page 321 of product spec v1.1) */
-            radio_info->rssi = _hwval_to_ieee802154_dbm(radio_info->lqi)
-                               + IEEE802154_RADIO_RSSI_OFFSET;
+            /* Converting the hardware-provided LQI value back to the
+               original RSSI value is not properly documented in the PS.
+               The linear mapping used here has been found empirically
+               through comparison with the RSSI value provided by NRF_RADIO->RSSISAMPLE
+               after enabling the ADDRESS_RSSISTART short. */
+            int8_t rssi_dbm = hwlqi + ED_RSSIOFFS - 1;
+            radio_info->rssi = ieee802154_dbm_to_rssi(rssi_dbm);
         }
         memcpy(buf, &rxbuf[1], pktlen);
     }
 
     return pktlen;
-}
-
-static int _confirm_cca(ieee802154_dev_t *dev)
-{
-    (void) dev;
-    int res;
-
-    switch (_state) {
-    case STATE_CCA_CLEAR:
-        DEBUG("[nrf802154] Channel is clear\n");
-        res = true;
-        break;
-    case STATE_CCA_BUSY:
-        DEBUG("[nrf802154] Channel is busy\n");
-        res = false;
-        break;
-    default:
-        res = -EAGAIN;
-    }
-
-    _state = STATE_RX;
-    return res;
-}
-
-static int _request_cca(ieee802154_dev_t *dev)
-{
-    (void) dev;
-
-    if (_state != STATE_RX) {
-        DEBUG("[nrf802154] CCA request fail: EBUSY\n");
-        return -EBUSY;
-    }
-
-    DEBUG("[nrf802154] CCA Requested\n");
-    /* Go back to RxIdle state and start CCA */
-    NRF_RADIO->TASKS_STOP = 1;
-    NRF_RADIO->TASKS_CCASTART = 1;
-    return 0;
 }
 
 /**
@@ -353,16 +407,6 @@ static void _set_txpower(int16_t txpower)
     }
 }
 
-static void _disable(void)
-{
-    /* set device into DISABLED state */
-    if (NRF_RADIO->STATE != RADIO_STATE_STATE_Disabled) {
-        NRF_RADIO->EVENTS_DISABLED = 0;
-        NRF_RADIO->TASKS_DISABLE = 1;
-        DEBUG("[nrf802154] Device state: DISABLED\n");
-    }
-}
-
 static void _set_ifs_timer(bool lifs)
 {
     uint8_t timeout;
@@ -378,57 +422,10 @@ static void _set_ifs_timer(bool lifs)
     timer_start(NRF802154_TIMER);
 }
 
-static int _confirm_set_trx_state(ieee802154_dev_t *dev)
-{
-    (void) dev;
-    int radio_state = NRF_RADIO->STATE;
-    if (radio_state == RADIO_STATE_STATE_TxRu || radio_state == RADIO_STATE_STATE_RxRu ||
-        radio_state == RADIO_STATE_STATE_TxDisable || radio_state == RADIO_STATE_STATE_RxDisable) {
-        return -EAGAIN;
-    }
-    DEBUG("[nrf802154]: State transition finished\n");
-    return 0;
-}
-
-static int _request_set_trx_state(ieee802154_dev_t *dev, ieee802154_trx_state_t state)
-{
-    (void) dev;
-
-    if (_state != STATE_IDLE && _state != STATE_RX) {
-        DEBUG("[nrf802154]: set_trx_state failed: -EBUSY\n");
-        return -EBUSY;
-    }
-
-    _disable();
-
-    /* This will take in worst case 21 us */
-    while (NRF_RADIO->STATE != RADIO_STATE_STATE_Disabled) {};
-
-    switch (state) {
-    case IEEE802154_TRX_STATE_TRX_OFF:
-        _state = STATE_IDLE;
-        DEBUG("[nrf802154]: Request state to TRX_OFF\n");
-        break;
-    case IEEE802154_TRX_STATE_RX_ON:
-        NRF_RADIO->PACKETPTR = (uint32_t)rxbuf;
-        NRF_RADIO->TASKS_RXEN = 1;
-        _state = STATE_RX;
-        DEBUG("[nrf802154]: Request state to RX_ON\n");
-        break;
-    case IEEE802154_TRX_STATE_TX_ON:
-        NRF_RADIO->PACKETPTR = (uint32_t)txbuf;
-        _state = STATE_IDLE;
-        DEBUG("[nrf802154]: Request state to TX_ON\n");
-        break;
-    }
-
-    return 0;
-}
-
 static void _timer_cb(void *arg, int chan)
 {
     (void)arg;
-    ieee802154_dev_t *dev = &nrf802154_hal_dev;
+    ieee802154_dev_t *dev = nrf802154_hal_dev;
 
     if (chan == MAC_TIMER_CHAN_ACK) {
         /* Copy sqn */
@@ -477,7 +474,7 @@ int nrf802154_init(void)
 
 void isr_radio(void)
 {
-    ieee802154_dev_t *dev = &nrf802154_hal_dev;
+    ieee802154_dev_t *dev = nrf802154_hal_dev;
 
     if (NRF_RADIO->EVENTS_FRAMESTART) {
         NRF_RADIO->EVENTS_FRAMESTART = 0;
@@ -572,11 +569,11 @@ void isr_radio(void)
         case STATE_ACK:
             _state = STATE_IDLE;
 
-            /* We disable the radio to avoid unwanted emmissions (see ERRATA
+            /* We disable the radio to avoid unwanted emissions (see ERRATA
              * ID 204, "Switching between TX and RX causes unwanted emissions")
              */
             _disable();
-            DEBUG("[nrf52840] TX ACK done.")
+            DEBUG("[nrf52840] TX ACK done.");
             _set_ifs_timer(false);
             break;
         default:
@@ -783,13 +780,15 @@ static int _set_csma_params(ieee802154_dev_t *dev, const ieee802154_csma_be_t *b
 void nrf802154_setup(nrf802154_t *dev)
 {
     (void) dev;
-#if IS_USED(MODULE_NETDEV_IEEE802154_SUBMAC)
-    netdev_t *netdev = (netdev_t*) dev;
-    netdev_register(netdev, NETDEV_NRF802154, 0);
-    DEBUG("[nrf802154] init submac.\n")
-    netdev_ieee802154_submac_init(&dev->netdev, &nrf802154_hal_dev);
-#endif
     nrf802154_init();
+}
+
+void nrf802154_hal_setup(ieee802154_dev_t *hal)
+{
+    /* We don't set hal->priv because the context of this device is global */
+    /* We need to store a reference to the HAL descriptor though for the ISR */
+    hal->driver = &nrf802154_ops;
+    nrf802154_hal_dev = hal;
 }
 
 static const ieee802154_radio_ops_t nrf802154_ops = {
@@ -803,16 +802,12 @@ static const ieee802154_radio_ops_t nrf802154_ops = {
 
     .write = _write,
     .read = _read,
-    .request_transmit = _request_transmit,
-    .confirm_transmit = _confirm_transmit,
-    .len = _len,
-    .off = _off,
     .request_on = _request_on,
     .confirm_on = _confirm_on,
-    .request_set_trx_state = _request_set_trx_state,
-    .confirm_set_trx_state = _confirm_set_trx_state,
-    .request_cca = _request_cca,
-    .confirm_cca = _confirm_cca,
+    .len = _len,
+    .off = _off,
+    .request_op = _request_op,
+    .confirm_op = _confirm_op,
     .set_cca_threshold = set_cca_threshold,
     .set_cca_mode = _set_cca_mode,
     .config_phy = _config_phy,

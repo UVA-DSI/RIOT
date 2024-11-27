@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 ML!PA Consulting GmbH
+ *               2022 SSV Software Systems GmbH
  *
  *
  * This file is subject to the terms and conditions of the GNU Lesser
@@ -16,6 +17,7 @@
  * @brief       Low-level timer driver implementation
  *
  * @author      Benjamin Valentin <benjamin.valentin@ml-pa.com>
+ * @author      Juergen Fitschen <me@jue.yt>
  *
  * @}
  */
@@ -26,6 +28,7 @@
 
 #include "board.h"
 #include "cpu.h"
+#include "pm_layered.h"
 
 #include "periph/timer.h"
 #include "periph_conf.h"
@@ -39,6 +42,22 @@
 static timer_isr_ctx_t config[TIMER_NUMOF];
 
 static uint32_t _oneshot;
+
+/* Number of right-shifts to perform on the input frequency to get the output
+ * frequency the prescaler will divide it down to */
+static const uint8_t _prescaler_shifts[] = {
+    [TC_CTRLA_PRESCALER_DIV1_Val] = 0,
+    [TC_CTRLA_PRESCALER_DIV2_Val] = 1,
+    [TC_CTRLA_PRESCALER_DIV4_Val] = 2,
+    [TC_CTRLA_PRESCALER_DIV8_Val] = 3,
+    [TC_CTRLA_PRESCALER_DIV16_Val] = 4,
+    [TC_CTRLA_PRESCALER_DIV64_Val] = 6,
+    [TC_CTRLA_PRESCALER_DIV256_Val] = 8,
+    [TC_CTRLA_PRESCALER_DIV1024_Val] = 10,
+};
+
+static_assert(ARRAY_SIZE(_prescaler_shifts) == (TC_CTRLA_PRESCALER_DIV1024_Val + 1),
+              "_prescaler_shifts needs an update for the selected MCU");
 
 static inline void set_oneshot(tim_t tim, int chan)
 {
@@ -91,46 +110,54 @@ static inline void _irq_enable(tim_t tim)
 
 static uint8_t _get_prescaler(uint32_t freq_out, uint32_t freq_in)
 {
-    uint8_t scale = 0;
-    while (freq_in > freq_out) {
-        freq_in >>= 1;
-
-        /* after DIV16 the prescaler gets more coarse */
-        if (++scale > TC_CTRLA_PRESCALER_DIV16_Val) {
-            freq_in >>= 1;
+    for (uint8_t scale = 0; scale < ARRAY_SIZE(_prescaler_shifts); scale++) {
+        if ((freq_in >> _prescaler_shifts[scale]) == freq_out) {
+            return scale;
         }
     }
 
-    /* fail if output frequency can't be derived from input frequency */
-    assert(freq_in == freq_out);
-
-    return scale;
+    return UINT8_MAX;
 }
 
 /* TOP value is CC0 */
 static inline void _set_mfrq(tim_t tim)
 {
-    timer_stop(tim);
-    wait_synchronization(tim);
 #ifdef TC_WAVE_WAVEGEN_MFRQ
     dev(tim)->WAVE.reg = TC_WAVE_WAVEGEN_MFRQ;
 #else
-    dev(tim)->CTRLA.bit.WAVEGEN = TC_CTRLA_WAVEGEN_MFRQ_Val;
+    uint32_t reg = dev(tim)->CTRLA.reg;
+    dev(tim)->CTRLA.reg = ((reg & ~TC_CTRLA_WAVEGEN_Msk) |
+                           TC_CTRLA_WAVEGEN(TC_CTRLA_WAVEGEN_MFRQ_Val));
 #endif
-    timer_start(tim);
 }
 
 /* TOP value is MAX timer value */
 static inline void _set_nfrq(tim_t tim)
 {
-    timer_stop(tim);
-    wait_synchronization(tim);
 #ifdef TC_WAVE_WAVEGEN_NFRQ
     dev(tim)->WAVE.reg = TC_WAVE_WAVEGEN_NFRQ;
 #else
-    dev(tim)->CTRLA.bit.WAVEGEN = TC_CTRLA_WAVEGEN_NFRQ_Val;
+    uint32_t reg = dev(tim)->CTRLA.reg;
+    dev(tim)->CTRLA.reg = ((reg & ~TC_CTRLA_WAVEGEN_Msk) |
+                           TC_CTRLA_WAVEGEN(TC_CTRLA_WAVEGEN_NFRQ_Val));
 #endif
-    timer_start(tim);
+}
+
+uword_t timer_query_freqs_numof(tim_t dev)
+{
+    assert(dev < TIMER_NUMOF);
+    (void)dev;
+    return ARRAY_SIZE(_prescaler_shifts);
+}
+
+uint32_t timer_query_freqs(tim_t dev, uword_t index)
+{
+    assert(dev < TIMER_NUMOF);
+    const tc32_conf_t *cfg = &timer_config[dev];
+    if (index >= ARRAY_SIZE(_prescaler_shifts)) {
+        return 0;
+    }
+    return sam0_gclk_freq(cfg->gclk_src) >> _prescaler_shifts[index];
 }
 
 /**
@@ -152,9 +179,6 @@ int timer_init(tim_t tim, uint32_t freq, timer_cb_t cb, void *arg)
         return -1;
     }
 
-    /* make sure the timer is not running */
-    timer_stop(tim);
-
     sam0_gclk_enable(cfg->gclk_src);
 #ifdef MCLK
     GCLK->PCHCTRL[cfg->gclk_id].reg = GCLK_PCHCTRL_GEN(cfg->gclk_src) | GCLK_PCHCTRL_CHEN;
@@ -164,9 +188,12 @@ int timer_init(tim_t tim, uint32_t freq, timer_cb_t cb, void *arg)
     PM->APBCMASK.reg |= cfg->pm_mask;
 #endif
 
+    /* make sure the timer is not running */
+    timer_stop(tim);
+
     /* reset the timer */
-    dev(tim)->CTRLA.bit.SWRST = 1;
-    while (dev(tim)->CTRLA.bit.SWRST) {}
+    dev(tim)->CTRLA.reg |= TC_CTRLA_SWRST;
+    while (dev(tim)->CTRLA.reg & TC_CTRLA_SWRST) {}
 
     dev(tim)->CTRLA.reg = cfg->flags
 #ifdef TC_CTRLA_WAVEGEN_NFRQ
@@ -242,9 +269,12 @@ int timer_set_periodic(tim_t tim, int channel, unsigned int value, uint8_t flags
 {
     DEBUG("Setting timer %i channel %i to %i (repeating)\n", tim, channel, value);
 
+    timer_stop(tim);
+
     /* set timeout value */
     switch (channel) {
     case 0:
+        /* clear interrupt */
         dev(tim)->INTFLAG.reg = TC_INTFLAG_MC0;
 
         if (flags & TIM_FLAG_RESET_ON_MATCH) {
@@ -276,6 +306,10 @@ int timer_set_periodic(tim_t tim, int channel, unsigned int value, uint8_t flags
         dev(tim)->COUNT.reg = 0;
     }
 
+    if (!(flags & TIM_FLAG_SET_STOPPED)) {
+        timer_start(tim);
+    }
+
     clear_oneshot(tim, channel);
 
     return 0;
@@ -302,12 +336,13 @@ int timer_clear(tim_t tim, int channel)
 unsigned int timer_read(tim_t tim)
 {
     /* WORKAROUND to prevent being stuck there if timer not init */
-    if (!dev(tim)->CTRLA.bit.ENABLE) {
+    if (!(dev(tim)->CTRLA.reg & TC_CTRLA_ENABLE)) {
         return 0;
     }
 
-    /* request syncronisation */
+    /* request synchronisation */
 #ifdef TC_CTRLBSET_CMD_READSYNC_Val
+    uint32_t cmd;
     dev(tim)->CTRLBSET.reg = TC_CTRLBSET_CMD_READSYNC;
      /* work around a possible hardware bug where it takes some
         cycles for the timer peripheral to set the SYNCBUSY/READSYNC bit
@@ -315,7 +350,10 @@ unsigned int timer_read(tim_t tim)
 
         The problem was observed on SAME54.
       */
-    while(dev(tim)->CTRLBSET.bit.CMD == TC_CTRLBSET_CMD_READSYNC_Val) {}
+    do {
+        cmd = ((dev(tim)->CTRLBSET.reg & TC_CTRLBSET_CMD_Msk) >> TC_CTRLBSET_CMD_Pos);
+    } while(cmd == TC_CTRLBSET_CMD_READSYNC_Val);
+
 #else
     dev(tim)->READREQ.reg = TC_READREQ_RREQ | TC_READREQ_ADDR(TC_COUNT32_COUNT_OFFSET);
 #endif
@@ -327,12 +365,31 @@ unsigned int timer_read(tim_t tim)
 
 void timer_stop(tim_t tim)
 {
-    dev(tim)->CTRLA.bit.ENABLE = 0;
+#if IS_ACTIVE(MODULE_PM_LAYERED) && defined(SAM0_TIMER_PM_BLOCK)
+    /* unblock power mode if the timer is running */
+    if (dev(tim)->CTRLA.reg & TC_CTRLA_ENABLE) {
+        DEBUG("[timer %d] pm_unblock\n", tim);
+        pm_unblock(SAM0_TIMER_PM_BLOCK);
+    }
+#endif
+
+    dev(tim)->CTRLA.reg &= ~TC_CTRLA_ENABLE;
+    wait_synchronization(tim);
 }
 
 void timer_start(tim_t tim)
 {
-    dev(tim)->CTRLA.bit.ENABLE = 1;
+    wait_synchronization(tim);
+
+#if IS_ACTIVE(MODULE_PM_LAYERED) && defined(SAM0_TIMER_PM_BLOCK)
+    /* block power mode if the timer is not running, yet */
+    if (!(dev(tim)->CTRLA.reg & TC_CTRLA_ENABLE)) {
+        DEBUG("[timer %d] pm_block\n", tim);
+        pm_block(SAM0_TIMER_PM_BLOCK);
+    }
+#endif
+
+    dev(tim)->CTRLA.reg |= TC_CTRLA_ENABLE;
 }
 
 static inline void timer_isr(tim_t tim)
@@ -343,7 +400,7 @@ static inline void timer_isr(tim_t tim)
     /* Acknowledge all interrupts */
     tc->INTFLAG.reg = status;
 
-    if ((status & TC_INTFLAG_MC0) && tc->INTENSET.bit.MC0) {
+    if ((status & TC_INTFLAG_MC0) && (tc->INTENSET.reg & TC_INTENSET_MC0)) {
 
         if (is_oneshot(tim, 0)) {
             tc->INTENCLR.reg = TC_INTENCLR_MC0;
@@ -354,7 +411,7 @@ static inline void timer_isr(tim_t tim)
         }
     }
 
-    if ((status & TC_INTFLAG_MC1) && tc->INTENSET.bit.MC1) {
+    if ((status & TC_INTFLAG_MC1) && (tc->INTENSET.reg & TC_INTENSET_MC1)) {
 
         if (is_oneshot(tim, 1)) {
             tc->INTENCLR.reg = TC_INTENCLR_MC1;

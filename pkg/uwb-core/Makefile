@@ -1,17 +1,17 @@
 PKG_NAME=uwb-core
 PKG_URL=https://github.com/Decawave/uwb-core
-PKG_VERSION=8ffba63755a932a89d841872ce5bdf35b9c78777
+PKG_VERSION=66f468659ec3353cf7fd6f2bd14f3a6cef397f4e
 PKG_LICENSE=Apache-2.0
 
 include $(RIOTBASE)/pkg/pkg.mk
 
+CFLAGS += -Wno-enum-compare
 CFLAGS += -Wno-implicit-int
 CFLAGS += -Wno-int-conversion
 CFLAGS += -Wno-strict-prototypes
 CFLAGS += -Wno-maybe-uninitialized
 CFLAGS += -Wno-missing-braces
 CFLAGS += -Wno-missing-declarations
-CFLAGS += -Wno-missing-field-initializers
 CFLAGS += -Wno-old-style-definition
 CFLAGS += -Wno-return-type
 CFLAGS += -Wno-sign-compare
@@ -45,9 +45,5 @@ UWB_CORE_PATH_twr_ds_ext = lib/twr_ds_ext/src
 all: $(UWB_CORE_MODULES)
 	$(QQ)"$(MAKE)" -C $(PKG_SOURCE_DIR)/hw/drivers/uwb/src -f $(RIOTBASE)/Makefile.base MODULE=$(PKG_NAME)
 
-uwb-core_config:
-	$(QQ)"$(MAKE)" -C $(PKG_SOURCE_DIR)/porting/dpl/riot/src -f $(RIOTBASE)/Makefile.base MODULE=$@
-
-uwb-core_uwbcfg: uwb-core_config
 uwb-core_%:
 	$(QQ)"$(MAKE)" -C $(PKG_SOURCE_DIR)/$(UWB_CORE_PATH_$*) -f $(RIOTBASE)/Makefile.base MODULE=$@

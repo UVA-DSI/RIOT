@@ -43,9 +43,9 @@ extern "C" {
 #endif
 /** @} */
 
-
 #ifdef __cplusplus
 } /* end extern "C" */
 #endif
 
 #endif /* CFG_RTT_DEFAULT_H */
+/** @} */

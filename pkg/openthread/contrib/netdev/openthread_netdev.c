@@ -84,20 +84,16 @@ static void *_openthread_event_loop(void *arg)
 
     event_queue_init(&ev_queue);
 
-    netdev->driver->init(netdev);
     netdev->event_callback = _event_cb;
+    netdev->driver->init(netdev);
 
     netopt_enable_t enable = NETOPT_ENABLE;
     netdev->driver->set(netdev, NETOPT_TX_END_IRQ, &enable, sizeof(enable));
-    netdev->driver->set(netdev, NETOPT_RX_END_IRQ, &enable, sizeof(enable));
 
     /* init OpenThread */
     sInstance = otInstanceInitSingle();
 
-    /* enable OpenThread UART */
-    otPlatUartEnable();
-
-#if defined(MODULE_OPENTHREAD_CLI)
+#if defined(MODULE_OPENTHREAD_CLI_FTD) || defined(MODULE_OPENTHREAD_CLI_MTD)
     otCliUartInit(sInstance);
     /* Init default parameters */
     otPanId panid = OPENTHREAD_PANID;
@@ -108,6 +104,9 @@ static void *_openthread_event_loop(void *arg)
     otIp6SetEnabled(sInstance, true);
     /* Start Thread protocol operation */
     otThreadSetEnabled(sInstance, true);
+#else
+    /* enable OpenThread UART */
+    otPlatUartEnable();
 #endif
 
 #if OPENTHREAD_ENABLE_DIAG
@@ -125,7 +124,7 @@ static void *_openthread_event_loop(void *arg)
 int openthread_netdev_init(char *stack, int stacksize, char priority,
                            const char *name, netdev_t *netdev) {
     if (thread_create(stack, stacksize,
-                         priority, THREAD_CREATE_STACKTEST,
+                         priority, 0,
                          _openthread_event_loop, netdev, name) < 0) {
         return -EINVAL;
     }

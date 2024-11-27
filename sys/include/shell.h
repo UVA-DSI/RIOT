@@ -11,6 +11,33 @@
  * @ingroup     sys
  * @brief       Simple shell interpreter
  *
+ * ## Security expectations
+ *
+ * Access to the shell grants access to the system that may exercise any power
+ * the firmware can exercise. While some commands only provide limited access
+ * to the system, and it is best practice for commands to validate their input,
+ * there is no expectation of security of the system when an attacker gains
+ * access to the shell.
+ *
+ * ## Usage
+ *
+ * Enable the `shell` module e.g. by adding the following snippet to your
+ * applications `Makefile`.
+ *
+ * ```
+ * USEMODULE += shell
+ * ```
+ *
+ * And run the shell using @ref shell_run_forever e.g. from the `main` thread
+ * after everything is set up. This call will never return.
+ *
+ * ## Builtin Commands
+ *
+ * The commands `help` and `help_json` are builtins that print the list of
+ * available commands: The former prints a human readable table and is always
+ * available, the latter requires module `shell_builtin_cmd_help_json` to be
+ * used and will give the same info machine readable.
+ *
  * @{
  *
  * @file
@@ -23,8 +50,12 @@
 #include <stdint.h>
 #include "periph/pm.h"
 
-#include "kernel_defines.h"
+#include "modules.h"
 #include "xfa.h"
+
+#ifndef __cplusplus
+#include "flash_utils.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,7 +77,7 @@ extern "C" {
  * Instead terminate RIOT, which is also the behavior a user would
  * expect from a CLI application.
  */
-#  if defined(CPU_NATIVE) && !IS_ACTIVE(KCONFIG_USEMODULE_SHELL)
+#  if defined(CPU_NATIVE) && !IS_ACTIVE(MODULE_SHELL_LOCK)
 #    define CONFIG_SHELL_SHUTDOWN_ON_EXIT 1
 #  else
 #    define CONFIG_SHELL_SHUTDOWN_ON_EXIT 0
@@ -67,28 +98,23 @@ extern "C" {
 #define CONFIG_SHELL_NO_PROMPT 0
 #endif
 
-/**
- * @brief Set to 1 to disable shell's echo
- * @deprecated This has been replaced by @ref CONFIG_SHELL_NO_ECHO and will be
- *             removed after release 2021.07.
- */
-#ifndef SHELL_NO_ECHO
-#define SHELL_NO_ECHO CONFIG_SHELL_NO_ECHO
-#endif
-
-/**
- * @brief Set to 1 to disable shell's prompt
- * @deprecated This has been replaced by @ref CONFIG_SHELL_NO_PROMPT and will be
- *             removed after release 2021.07.
- */
-#ifndef SHELL_NO_PROMPT
-#define SHELL_NO_PROMPT CONFIG_SHELL_NO_PROMPT
-#endif
-
 /** @} */
 
 /**
  * @brief Default shell buffer size (maximum line length shell can handle)
+ *
+ * @warning When terminals that buffer input and send the full command line in
+ *   one go are used on stdin implementations with fast bursts of data,
+ *   it may be necessary to increase the @ref STDIO_RX_BUFSIZE to make
+ *   practical use of this buffer, especially because the current mechanism of
+ *   passing stdin (`isrpipe_t stdin_isrpipe`) does not support backpressure
+ *   and overflows silently. As a consequence, commands through such terminals
+ *   appear to be truncated at @ref STDIO_RX_BUFSIZE bytes (defaulting to 64)
+ *   unless the command is sent in parts (on many terminals, by pressing Ctrl-D
+ *   half way through the command).
+ *
+ *   For example, this affects systems with direct USB stdio (@ref
+ *   usbus_cdc_acm_stdio) with the default terminal `pyterm`.
  */
 #define SHELL_DEFAULT_BUFSIZE   (128)
 
@@ -124,16 +150,23 @@ void shell_pre_command_hook(int argc, char **argv);
 void shell_post_command_hook(int ret, int argc, char **argv);
 
 /**
- * @brief           Protype of a shell callback handler.
+ * @brief           Prototype of a shell callback handler.
  * @details         The functions supplied to shell_run() must use this signature.
- *                  The argument list is terminated with a NULL, i.e ``argv[argc] == NULL`.
- *                  ``argv[0]`` is the function name.
+ *                  It is designed to mimic the function signature of `main()`.
+ *                  For this reason, the argument list is terminated with a
+ *                  `NULL`, i.e `argv[argc] == NULL` (which is an ANSI-C
+ *                  requirement, and a detail that newlib's `getopt()`
+ *                  implementation relies on). The function name is passed in
+ *                  `argv[0]`.
  *
  *                  Escape sequences are removed before the function is called.
  *
  *                  The called function may edit `argv` and the contained strings,
  *                  but it must be taken care of not to leave the boundaries of the array.
- *                  This functionality can be used by getopt() or a similar function.
+ *                  This functionality is another property that many `getopt()`
+ *                  implementations rely on to provide their so-called "permute"
+ *                  feature extension.
+ *
  * @param[in]       argc   Number of arguments supplied to the function invocation.
  * @param[in]       argv   The supplied argument list.
  *
@@ -152,6 +185,20 @@ typedef struct shell_command_t {
     const char *desc; /**< Description to print in the "help" command. */
     shell_command_handler_t handler; /**< The callback function. */
 } shell_command_t;
+
+#ifndef __cplusplus
+/**
+ * @brief           A single command in the list of the supported commands.
+ *
+ * This type is used internally by the @ref SHELL_COMMAND macro.
+ */
+typedef struct {
+    FLASH_ATTR const char *name; /**< Name of the function */
+    FLASH_ATTR const char *desc; /**< Description to print in the "help"
+                                  *   command. */
+    shell_command_handler_t handler; /**< The callback function. */
+} shell_command_xfa_t;
+#endif /* __cplusplus */
 
 /**
  * @brief           Start a shell and exit once EOF is reached.
@@ -198,7 +245,38 @@ static inline void shell_run(const shell_command_t *commands,
 }
 
 /**
+ * @brief           Parse and run a line of text as a shell command with
+ *                  arguments.
+ *
+ * @param[in]       commands    ptr to array of command structs
+ * @param[in]       line        The input line to parse
+ *
+ * @returns         return value of the found command
+ * @returns         -ENOEXEC if no valid command could be found
+ */
+int shell_handle_input_line(const shell_command_t *commands, char *line);
+
+/**
+ * @brief           Read shell commands from a file and run them.
+ *
+ * @note            This requires the `vfs` module.
+ *
+ * @param[in]       commands    ptr to array of command structs
+ * @param[in]       filename    file to read shell commands from
+ * @param[out]      line_nr     line on which an error occurred, may be NULL
+ *
+ * @returns         0 if all commands were executed successful
+ *                  error return of failed command otherwise
+ */
+int shell_parse_file(const shell_command_t *commands,
+                     const char *filename, unsigned *line_nr);
+
+#ifndef __cplusplus
+/**
  * @brief   Define shell command
+ *
+ * @note    This is not available from C++, but a trivial C file can easily
+ *          hook up a `extern "C"` function implemented in C++.
  *
  * This macro is a helper for defining a shell command and adding it to the
  * shell commands XFA (cross file array).
@@ -223,10 +301,16 @@ static inline void shell_run(const shell_command_t *commands,
  * SHELL_COMMAND(my_command, "my command help text", _my_command);
  * ```
  */
-#define SHELL_COMMAND(name, help, func) \
-    XFA_USE_CONST(shell_command_t*, shell_commands_xfa); \
-    static const shell_command_t _xfa_ ## name ## _cmd = { #name, help, &func }; \
-    XFA_ADD_PTR(shell_commands_xfa, name, name, &_xfa_ ## name ## _cmd)
+#define SHELL_COMMAND(cmd, help, func) \
+    XFA_USE_CONST(shell_command_xfa_t, shell_commands_xfa_v2); \
+    static FLASH_ATTR const char _xfa_ ## cmd ## _cmd_name[] = #cmd; \
+    static FLASH_ATTR const char _xfa_ ## cmd ## _cmd_desc[] = help; \
+    XFA_CONST(shell_command_xfa_t, shell_commands_xfa_v2, 0) _xfa_ ## cmd ## _cmd = { \
+        .name = _xfa_ ## cmd ## _cmd_name, \
+        .desc = _xfa_ ## cmd ## _cmd_desc, \
+        .handler = &func \
+    };
+#endif /* __cplusplus */
 
 #ifdef __cplusplus
 }

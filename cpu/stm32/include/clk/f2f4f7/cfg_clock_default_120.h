@@ -23,6 +23,9 @@
 #ifndef CLK_F2F4F7_CFG_CLOCK_DEFAULT_120_H
 #define CLK_F2F4F7_CFG_CLOCK_DEFAULT_120_H
 
+#include "kernel_defines.h"
+#include "macros/units.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,7 +40,7 @@ extern "C" {
 #define CONFIG_CLOCK_PLL_M              (4)
 #endif
 #ifndef CONFIG_CLOCK_PLL_N
-#if IS_ACTIVE(CONFIG_BOARD_HAS_HSE) && (CLOCK_HSE == MHZ(8))
+#if IS_ACTIVE(CONFIG_BOARD_HAS_HSE) && (CONFIG_CLOCK_HSE == MHZ(8))
 #define CONFIG_CLOCK_PLL_N              (120)
 #else
 #define CONFIG_CLOCK_PLL_N              (60)
@@ -53,6 +56,7 @@ extern "C" {
 
 /**
  * @name    Clock bus settings (APB1 and APB2)
+ * @{
  */
 #ifndef CONFIG_CLOCK_APB1_DIV
 #define CONFIG_CLOCK_APB1_DIV           (4)        /* max 30MHz */

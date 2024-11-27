@@ -49,7 +49,7 @@
 int _gnrc_gomach_transmit(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
 {
     netdev_t *dev = netif->dev;
-    netdev_ieee802154_t *state = (netdev_ieee802154_t *)netif->dev;
+    netdev_ieee802154_t *state = container_of(dev, netdev_ieee802154_t, netdev);
     gnrc_netif_hdr_t *netif_hdr;
     const uint8_t *src, *dst = NULL;
     int res = 0;
@@ -159,7 +159,8 @@ static int _parse_packet(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt,
     assert(info != NULL);
     assert(pkt != NULL);
 
-    netdev_ieee802154_t *state = (netdev_ieee802154_t *)netif->dev;
+    netdev_t *dev = netif->dev;
+    netdev_ieee802154_t *state = container_of(dev, netdev_ieee802154_t, netdev);
     /* Get the packet sequence number */
     info->seq = ieee802154_get_seq(pkt->next->data);
 
@@ -307,18 +308,18 @@ void gnrc_gomach_set_netdev_state(gnrc_netif_t *netif, netopt_state_t devstate)
 #if (GNRC_GOMACH_ENABLE_DUTYCYLE_RECORD == 1)
     if (devstate == NETOPT_STATE_IDLE) {
         if (!(netif->mac.prot.gomach.gomach_info & GNRC_GOMACH_INTERNAL_INFO_RADIO_IS_ON)) {
-            netif->mac.prot.gomach.last_radio_on_time_ticks = xtimer_now_usec64();
+            netif->mac.prot.gomach.last_radio_on_time_ms = xtimer_now_usec64();
             netif->mac.prot.gomach.gomach_info |= GNRC_GOMACH_INTERNAL_INFO_RADIO_IS_ON;
         }
         return;
     }
     else if ((devstate == NETOPT_STATE_SLEEP) &&
              (netif->mac.prot.gomach.gomach_info & GNRC_GOMACH_INTERNAL_INFO_RADIO_IS_ON)) {
-        netif->mac.prot.gomach.radio_off_time_ticks = xtimer_now_usec64();
+        netif->mac.prot.gomach.radio_off_time_ms = xtimer_now_usec64();
 
-        netif->mac.prot.gomach.awake_duration_sum_ticks +=
-            (netif->mac.prot.gomach.radio_off_time_ticks -
-             netif->mac.prot.gomach.last_radio_on_time_ticks);
+        netif->mac.prot.gomach.awake_duration_sum_ms +=
+            (netif->mac.prot.gomach.radio_off_time_ms -
+             netif->mac.prot.gomach.last_radio_on_time_ms);
 
         netif->mac.prot.gomach.gomach_info &= ~GNRC_GOMACH_INTERNAL_INFO_RADIO_IS_ON;
     }

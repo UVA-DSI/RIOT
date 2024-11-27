@@ -23,9 +23,10 @@
 #include "usb/usbus.h"
 #include "usb/usbus/control.h"
 #include "usb/usbus/dfu.h"
+#include "riotboot/magic.h"
 #include "riotboot/usb_dfu.h"
 #ifdef MODULE_RIOTBOOT_USB_DFU
-#include "xtimer.h"
+#include "ztimer.h"
 #endif
 #include "periph/pm.h"
 
@@ -47,7 +48,7 @@ static void _init(usbus_t *usbus, usbus_handler_t *handler);
 
 #ifdef MODULE_RIOTBOOT_USB_DFU
 static void _reboot(void *arg);
-static xtimer_t scheduled_reboot = { .callback=_reboot };
+static ztimer_t scheduled_reboot = { .callback=_reboot };
 #define REBOOT_DELAY 2
 #endif
 
@@ -100,7 +101,17 @@ void usbus_dfu_init(usbus_t *usbus, usbus_dfu_device_t *handler, unsigned mode)
     DEBUG("DFU: initialization\n");
     assert(usbus);
     assert(handler);
-    assert((SLOT0_OFFSET % FLASHPAGE_SIZE) == 0);
+#if defined(FLASHPAGE_SIZE)
+    static_assert((SLOT0_OFFSET % FLASHPAGE_SIZE) == 0,
+                  "SLOT0_OFFSET has to be a multiple of FLASHPAGE_SIZE");
+#elif defined(FLASHPAGE_MIN_SECTOR_SIZE)
+    /* STM32F2/4/7 MCUs use sectors instead of pages, where the minimum sector
+     * size is defined by FLASHPAGE_MIN_SECTOR_SIZE, which is 16KB or 32KB
+     * (the first sector) depending on the CPU_MODEL. In this case SLOT0_OFFSET
+     * must be a multiple of the minimum sector size to cover a whole sector. */
+    static_assert((SLOT0_OFFSET % FLASHPAGE_MIN_SECTOR_SIZE) == 0,
+                  "SLOT0_OFFSET has to be a multiple of FLASHPAGE_MIN_SECTOR_SIZE");
+#endif
     memset(handler, 0, sizeof(usbus_dfu_device_t));
     handler->usbus = usbus;
     handler->handler_ctrl.driver = &dfu_driver;
@@ -115,7 +126,7 @@ void usbus_dfu_init(usbus_t *usbus, usbus_dfu_device_t *handler, unsigned mode)
 
 static void _init(usbus_t *usbus, usbus_handler_t *handler)
 {
-    usbus_dfu_device_t *dfu = (usbus_dfu_device_t*) handler;
+    usbus_dfu_device_t *dfu = container_of(handler, usbus_dfu_device_t, handler_ctrl);
     /* Set up descriptor generators */
     dfu->dfu_descr.next = NULL;
     dfu->dfu_descr.funcs = &_dfu_descriptor;
@@ -141,7 +152,7 @@ static void _init(usbus_t *usbus, usbus_handler_t *handler)
     /* Add string descriptor to the interface */
     dfu->iface.descr = &dfu->slot0_str;
 
-#ifdef MODULE_RIOTBOOT_USB_DFU
+#if defined (MODULE_RIOTBOOT_USB_DFU) && NUM_SLOTS == 2
     /* Create needed string descriptor for the alternate settings */
     usbus_add_string_descriptor(usbus, &dfu->slot1_str, USB_DFU_MODE_SLOT1_NAME);
 
@@ -150,26 +161,22 @@ static void _init(usbus_t *usbus, usbus_handler_t *handler)
 
     /* attached alternate settings to their interface */
     usbus_add_interface_alt(&dfu->iface, &dfu->iface_alt_slot1);
-
-    /* Start xtimer for scheduled reboot after firmware upgrade */
-    xtimer_init();
 #endif
     /* Add interface to the stack */
     usbus_add_interface(usbus, &dfu->iface);
     usbus_handler_set_flag(handler, USBUS_HANDLER_FLAG_RESET);
 }
 
-static void _dfu_class_control_req(usbus_t *usbus, usbus_dfu_device_t *dfu, usb_setup_t *pkt)
+static int _dfu_class_control_req(usbus_t *usbus, usbus_dfu_device_t *dfu, usb_setup_t *pkt)
 {
     static const usbopt_enable_t disable = USBOPT_DISABLE;
-
     DEBUG("DFU control request:%x\n", pkt->request);
     switch (pkt->request) {
         case DFU_DETACH:
             /* Detach USB bus */
             usbdev_set(usbus->dev, USBOPT_ATTACH, &disable, sizeof(usbopt_enable_t));
             /* Restart and jump into the bootloader */
-            uint32_t *reset_addr = (uint32_t *)RIOTBOOT_DFU_ADDR;
+            uint32_t *reset_addr = (uint32_t *)RIOTBOOT_MAGIC_ADDR;
             *reset_addr = RIOTBOOT_MAGIC_NUMBER;
             pm_reboot();
             break;
@@ -188,18 +195,29 @@ static void _dfu_class_control_req(usbus_t *usbus, usbus_dfu_device_t *dfu, usb_
             else {
                 /* Retrieve firmware data */
                 size_t len = 0;
+                int ret = 0;
                 uint8_t *data = usbus_control_get_out_data(usbus, &len);
                  /* skip writing the riotboot signature */
                 if (dfu->skip_signature) {
+                    /* Avoid underflow condition */
+                    if (len < RIOTBOOT_FLASHWRITE_SKIPLEN) {
+                        dfu->dfu_state = USB_DFU_STATE_DFU_ERROR;
+                        return -1;
+                    }
                     riotboot_flashwrite_init(&dfu->writer, dfu->selected_slot);
                     len -= RIOTBOOT_FLASHWRITE_SKIPLEN;
                     dfu->skip_signature = false;
-                    riotboot_flashwrite_putbytes(&dfu->writer,
+                    ret = riotboot_flashwrite_putbytes(&dfu->writer,
                                                  &data[RIOTBOOT_FLASHWRITE_SKIPLEN],
                                                  len, true);
                 }
                 else {
-                    riotboot_flashwrite_putbytes(&dfu->writer, data, len, true);
+                    ret = riotboot_flashwrite_putbytes(&dfu->writer, data, len, true);
+                }
+                if (ret < 0) {
+                    /* Error occurs, stall the current transfer */
+                    dfu->dfu_state = USB_DFU_STATE_DFU_ERROR;
+                    return -1;
                 }
             }
             break;
@@ -216,7 +234,7 @@ static void _dfu_class_control_req(usbus_t *usbus, usbus_dfu_device_t *dfu, usb_
                 /* Scheduled reboot, so we can answer back dfu-util before rebooting */
                 dfu->dfu_state = USB_DFU_STATE_DFU_DL_IDLE;
 #ifdef MODULE_RIOTBOOT_USB_DFU
-                xtimer_set(&scheduled_reboot, 1 * US_PER_SEC);
+                ztimer_set(ZTIMER_SEC, &scheduled_reboot, 1);
 #endif
             }
             memset(&buf, 0, sizeof(buf));
@@ -229,11 +247,17 @@ static void _dfu_class_control_req(usbus_t *usbus, usbus_dfu_device_t *dfu, usb_
             break;
         }
         case DFU_CLR_STATUS:
-            DEBUG("CLRSTATUS To be implemented\n");
+            if (dfu->dfu_state == USB_DFU_STATE_DFU_ERROR) {
+                dfu->dfu_state = USB_DFU_STATE_DFU_IDLE;
+            } else {
+                DEBUG("CLRSTATUS: unhandled case");
+            }
             break;
         default:
             DEBUG("Unhandled DFU control request:%d\n", pkt->request);
     }
+
+    return 0;
 }
 
 static int _control_handler(usbus_t *usbus, usbus_handler_t *handler,
@@ -242,12 +266,16 @@ static int _control_handler(usbus_t *usbus, usbus_handler_t *handler,
 {
     (void)usbus;
     (void)state;
-    usbus_dfu_device_t *dfu = (usbus_dfu_device_t *)handler;
+
+    usbus_dfu_device_t *dfu = container_of(handler, usbus_dfu_device_t, handler_ctrl);
     DEBUG("DFU: Request: 0x%x\n", setup->request);
 
     /* Process DFU class request */
     if (setup->type & USB_SETUP_REQUEST_TYPE_CLASS) {
-        _dfu_class_control_req(usbus, dfu, setup);
+        if (_dfu_class_control_req(usbus, dfu, setup) < 0) {
+            DEBUG("DFU: control request %u failed\n", setup->request);
+            return -1;
+        }
     }
     else {
         switch (setup->request) {

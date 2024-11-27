@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "event.h"
 #include "od.h"
 #include "timex.h"
 #include "random.h"
@@ -63,7 +64,7 @@ static void rtt_cb(void *arg);
 static void lwmac_set_state(gnrc_netif_t *netif, gnrc_lwmac_state_t newstate);
 static void lwmac_schedule_update(gnrc_netif_t *netif);
 static void rtt_handler(uint32_t event, gnrc_netif_t *netif);
-static void _lwmac_init(gnrc_netif_t *netif);
+static int _lwmac_init(gnrc_netif_t *netif);
 static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt);
 static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif);
 static void _lwmac_msg_handler(gnrc_netif_t *netif, msg_t *msg);
@@ -112,8 +113,6 @@ static void lwmac_reinit_radio(gnrc_netif_t *netif)
         netopt_enable_t enable;
         netif->dev->driver->get(netif->dev, NETOPT_RX_START_IRQ, &enable, sizeof(enable));
         assert(enable == NETOPT_ENABLE);
-        netif->dev->driver->get(netif->dev, NETOPT_RX_END_IRQ, &enable, sizeof(enable));
-        assert(enable == NETOPT_ENABLE);
         netif->dev->driver->get(netif->dev, NETOPT_TX_END_IRQ, &enable, sizeof(enable));
         assert(enable == NETOPT_ENABLE);
     }
@@ -150,7 +149,7 @@ static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif)
 {
     netdev_t *dev = netif->dev;
     netdev_ieee802154_rx_info_t rx_info;
-    netdev_ieee802154_t *state = (netdev_ieee802154_t *)netif->dev;
+    netdev_ieee802154_t *state = container_of(dev, netdev_ieee802154_t, netdev);
     gnrc_pktsnip_t *pkt = NULL;
     int bytes_expected = dev->driver->recv(dev, NULL, 0, NULL);
 
@@ -458,17 +457,8 @@ static void _sleep_management(gnrc_netif_t *netif)
     }
 }
 
-static void _rx_management_failed(gnrc_netif_t *netif)
+static void _rx_management_attempt_sleep(gnrc_netif_t *netif)
 {
-    /* This may happen frequently because we'll receive WA from
-     * every node in range. */
-    LOG_DEBUG("[LWMAC] Reception was NOT successful\n");
-    gnrc_lwmac_rx_stop(netif);
-
-    if (netif->mac.rx.rx_bad_exten_count >= CONFIG_GNRC_LWMAC_MAX_RX_EXTENSION_NUM) {
-        gnrc_lwmac_set_quit_rx(netif, true);
-    }
-
     /* Here we check if we are close to the end of the cycle. If yes,
      * go to sleep. Firstly, get the relative phase. */
     uint32_t phase = rtt_get_counter();
@@ -493,6 +483,20 @@ static void _rx_management_failed(gnrc_netif_t *netif)
     }
 }
 
+static void _rx_management_failed(gnrc_netif_t *netif)
+{
+    /* This may happen frequently because we'll receive WA from
+     * every node in range. */
+    LOG_DEBUG("[LWMAC] Reception was NOT successful\n");
+    gnrc_lwmac_rx_stop(netif);
+
+    if (netif->mac.rx.rx_bad_exten_count >= CONFIG_GNRC_LWMAC_MAX_RX_EXTENSION_NUM) {
+        gnrc_lwmac_set_quit_rx(netif, true);
+    }
+
+    _rx_management_attempt_sleep(netif);
+}
+
 static void _rx_management_success(gnrc_netif_t *netif)
 {
     LOG_DEBUG("[LWMAC] Reception was successful\n");
@@ -500,28 +504,7 @@ static void _rx_management_success(gnrc_netif_t *netif)
     /* Dispatch received packets, timing is not critical anymore */
     gnrc_mac_dispatch(&netif->mac.rx);
 
-    /* Here we check if we are close to the end of the cycle. If yes,
-     * go to sleep. Firstly, get the relative phase. */
-    uint32_t phase = rtt_get_counter();
-    if (phase < netif->mac.prot.lwmac.last_wakeup) {
-        phase = (RTT_US_TO_TICKS(GNRC_LWMAC_PHASE_MAX) - netif->mac.prot.lwmac.last_wakeup) +
-                phase;
-    }
-    else {
-        phase = phase - netif->mac.prot.lwmac.last_wakeup;
-    }
-    /* If the relative phase is beyond 4/5 cycle time, go to sleep. */
-    if (phase > (4 * RTT_US_TO_TICKS(CONFIG_GNRC_LWMAC_WAKEUP_INTERVAL_US) / 5)) {
-        gnrc_lwmac_set_quit_rx(netif, true);
-    }
-
-    if (gnrc_lwmac_get_quit_rx(netif)) {
-        lwmac_set_state(netif, GNRC_LWMAC_SLEEPING);
-    }
-    else {
-        /* Go back to LISTENING after successful reception */
-        lwmac_set_state(netif, GNRC_LWMAC_LISTENING);
-    }
+    _rx_management_attempt_sleep(netif);
 }
 
 static void _rx_management(gnrc_netif_t *netif)
@@ -796,14 +779,7 @@ static void _lwmac_event_cb(netdev_t *dev, netdev_event_t event)
     gnrc_netif_t *netif = (gnrc_netif_t *) dev->context;
 
     if (event == NETDEV_EVENT_ISR) {
-        msg_t msg;
-
-        msg.type = NETDEV_MSG_TYPE_EVENT;
-        msg.content.ptr = (void *) netif;
-
-        if (msg_send(&msg, netif->pid) <= 0) {
-            LOG_WARNING("WARNING: [LWMAC] gnrc_netdev: possibly lost interrupt.\n");
-        }
+        event_post(&netif->evq[GNRC_NETIF_EVQ_INDEX_PRIO_LOW], &netif->event_isr);
     }
     else {
         DEBUG("gnrc_netdev: event triggered -> %i\n", event);
@@ -939,11 +915,16 @@ static void _lwmac_msg_handler(gnrc_netif_t *netif, msg_t *msg)
     }
 }
 
-static void _lwmac_init(gnrc_netif_t *netif)
+static int _lwmac_init(gnrc_netif_t *netif)
 {
     netdev_t *dev;
 
-    gnrc_netif_default_init(netif);
+    int res = gnrc_netif_default_init(netif);
+
+    if (res < 0) {
+        return res;
+    }
+
     dev = netif->dev;
     dev->event_callback = _lwmac_event_cb;
 
@@ -984,4 +965,6 @@ static void _lwmac_init(gnrc_netif_t *netif)
     netif->mac.prot.lwmac.awake_duration_sum_ticks = 0;
     netif->mac.prot.lwmac.lwmac_info |= GNRC_LWMAC_RADIO_IS_ON;
 #endif
+
+    return res;
 }

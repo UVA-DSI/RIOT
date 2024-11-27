@@ -2,7 +2,7 @@
  * Copyright (C) 2014 Freie Universität Berlin, Hinnerk van Bruinehsen
  *               2017 RWTH Aachen, Josua Arndt
  *               2018 Matthew Blue
- *               2021 Gerson Fernando Budke
+ *               2021-2023 Gerson Fernando Budke
  *
  * This file is subject to the terms and conditions of the GNU Lesser
  * General Public License v2.1. See the file LICENSE in the top level
@@ -31,9 +31,7 @@
 #include <avr/pgmspace.h>
 
 #include "cpu.h"
-#ifdef CPU_AVR8_HAS_CLOCK_INIT
 #include "cpu_clock.h"
-#endif
 #include "board.h"
 #include "irq.h"
 #include "periph/init.h"
@@ -70,7 +68,12 @@
 */
 uint8_t mcusr_mirror __attribute__((section(".noinit")));
 uint8_t soft_rst __attribute__((section(".noinit")));
-uint8_t avr8_state = 0;
+#if (AVR8_STATE_IRQ_USE_SRAM)
+uint8_t avr8_state_irq_count_sram = 0;
+#endif
+#if (AVR8_STATE_UART_USE_SRAM)
+uint8_t avr8_state_uart_sram = 0;
+#endif
 
 void get_mcusr(void) __attribute__((naked, section(".init0"), used));
 
@@ -91,14 +94,17 @@ void get_mcusr(void)
 
 void cpu_init(void)
 {
+#ifdef PRUSB
+    /* disable usb interrupt */
+    PRR1 |= 1<<PRUSB;
+#endif
+
     avr8_reset_cause();
 
     wdt_reset();   /* should not be nececessary as done in bootloader */
     wdt_disable(); /* but when used without bootloader this is needed */
 
-#ifdef CPU_AVR8_HAS_CLOCK_INIT
     avr8_clk_init();
-#endif
 
     /* Initialize stdio before periph_init() to allow use of DEBUG() there */
 #ifdef MODULE_AVR_LIBC_EXTRA
@@ -116,6 +122,10 @@ void cpu_init(void)
               |  PMIC_MEDLVLEN_bm
               |  PMIC_LOLVLEN_bm;
 #endif
+
+    /* Set global resources initial state */
+    avr8_state_uart = 0;
+    avr8_state_irq_count = 0;
 
     irq_enable();
 }

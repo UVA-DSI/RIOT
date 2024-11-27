@@ -20,10 +20,10 @@
 #ifndef PERIPH_CONF_H
 #define PERIPH_CONF_H
 
-#include "periph_cpu.h"
 #include "cfg_clock_32_1.h"
 #include "cfg_rtt_default.h"
 #include "cfg_timer_default.h"
+#include "periph_cpu.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,9 +33,21 @@ extern "C" {
  * @name    UART configuration
  * @{
  */
-#define UART_NUMOF          (1U)
-#define UART_PIN_RX         GPIO_PIN(0, 11)
-#define UART_PIN_TX         GPIO_PIN(0, 5)
+static const uart_conf_t uart_config[] = {
+    { /* Mapped to USB virtual COM port */
+        .dev        = NRF_UARTE0,
+        .rx_pin     = GPIO_PIN(0, 11),
+        .tx_pin     = GPIO_PIN(0, 5),
+#ifdef MODULE_PERIPH_UART_HW_FC
+        .rts_pin    = GPIO_UNDEF,
+        .cts_pin    = GPIO_UNDEF,
+#endif
+        .irqn       = UARTE0_UART0_IRQn,
+    },
+};
+
+#define UART_NUMOF          ARRAY_SIZE(uart_config)
+#define UART_0_ISR          (isr_uart0)
 /** @} */
 
 /**
@@ -46,8 +58,8 @@ static const spi_conf_t spi_config[] = {
     {
         .dev  = NRF_SPIM0,
         .sclk = GPIO_PIN(0, 4),
-        .mosi = GPIO_PIN(0, 5),
-        .miso = GPIO_PIN(0, 6),
+        .mosi = GPIO_PIN(0, 6),
+        .miso = GPIO_PIN(0, 7),
         .ppi = 0,
     },
     {   /* Connected to the DWM1001 UWB transceiver */

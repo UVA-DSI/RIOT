@@ -25,8 +25,7 @@
 #include "thread.h"
 #include "sched.h"
 #include "context_frame.h"
-
-#include "vendor/platform.h"
+#include "architecture.h"
 
 /**
  * @brief   Noticeable marker marking the beginning of a stack segment
@@ -103,11 +102,11 @@ char *thread_stack_init(thread_task_func_t task_func,
     memset(sf, 0, sizeof(*sf));
 
     /* set initial reg values */
-    sf->pc = (uint32_t)task_func;
-    sf->a0 = (uint32_t)arg;
+    sf->pc = (uword_t)task_func;
+    sf->a0 = (uword_t)arg;
 
     /* if the thread exits go to sched_task_exit() */
-    sf->ra = (uint32_t)sched_task_exit;
+    sf->ra = (uword_t)sched_task_exit;
 
     return (char *)stk_top;
 }
@@ -187,6 +186,7 @@ void heap_stats(void)
     extern char _sheap;     /* defined in linker script */
     extern char _eheap;     /* defined in linker script */
 
+    /* cppcheck-suppress comparePointers */
     long int heap_size = &_eheap - &_sheap;
     struct mallinfo minfo = mallinfo();
 

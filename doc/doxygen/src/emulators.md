@@ -17,6 +17,13 @@ with the `RIOT_EMULATOR` variable. Possible values are `qemu` and `renode`.
 If no emulator is specified by the board configuration (e.g. in its
 `Makefile.include`), the default emulator is `renode`.
 
+The boards with emulator supported can be listed using the
+`info-emulated-boards` target:
+
+```
+$ make info-emulated-boards
+```
+
 ## Features
 
 Be aware that not all hardware features provided by a board - and described as
@@ -51,9 +58,9 @@ $ EMULATE=1 make BOARD=<board> -C <test application directory> all test
 
 The `EMULATOR_SERIAL_PORT` variable can be used to specify a custom serial port
 on the host running the emulator.
-The default value is built based on the board and application names:
-`/tmp/riot_$(APPLICATION)_$(BOARD)_uart`.
-This variable is useful to allow several emulated sessions of the same
+The default value is built based on a random temporary directory:
+`$(EMULATOR_TMP_DIR)/uart`.
+The randomness of this variable allows several emulated sessions of the same
 application with the same board to run in parallel.
 
 # Qemu
@@ -76,11 +83,9 @@ So far, in RIOT, only the @ref boards_microbit board is supported with qemu.
 
 ## Configuration
 
-The QEMU emulated serial port is exposed on a local TCP server, redirected to a
+The QEMU emulated serial port is exposed on a local Unix socket, redirected to a
 local PTY file (using [socat](http://www.dest-unreach.org/socat/)). This makes
-it possible to open the PTY file a regular serial port.
-To allow multiple emulated sessions in parallel, the TCP port of the TCP server
-can be configured using the `QEMU_SERIAL_TCP_PORT`. The default value is 5555.
+it possible to open the PTY file in a regular serial port.
 
 # Renode
 

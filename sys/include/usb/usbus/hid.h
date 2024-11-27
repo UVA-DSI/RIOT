@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Nils Ollrogge
+ * Copyright (C) 2021 Nils Ollrogge
  *
  * This file is subject to the terms and conditions of the GNU Lesser General
  * Public License v2.1. See the file LICENSE in the top level directory for
@@ -21,7 +21,7 @@
  *              specific handling. A different module is required to provide
  *              functional handling of the data e.g. UART or STDIO integration.
  *
- * @author      Nils Ollrogge <nils-ollrogge@outlook.de>
+ * @author      Nils Ollrogge <nils.ollrogge@fu-berlin.de>
  */
 
 #ifndef USB_USBUS_HID_H
@@ -77,6 +77,16 @@ struct usbus_hid_device {
     usbus_hid_cb_t cb;              /**< Callback for data handlers */
     event_t tx_ready;               /**< Transmit ready event */
     mutex_t in_lock;                /**< mutex used for locking hid send */
+
+    /**
+     * @brief Host to device data buffer
+     */
+    usbdev_ep_buf_t out_buf[CONFIG_USBUS_HID_INTERRUPT_EP_SIZE];
+
+    /**
+     * @brief Device to host data buffer
+     */
+    usbdev_ep_buf_t in_buf[CONFIG_USBUS_HID_INTERRUPT_EP_SIZE];
 };
 
 /**
@@ -91,25 +101,6 @@ struct usbus_hid_device {
 void usbus_hid_init(usbus_t *usbus, usbus_hid_device_t *hid,
                     usbus_hid_cb_t cb, const uint8_t *report_desc,
                     size_t report_desc_size);
-
-/**
- * @brief Submit bytes to the HID handler
- *
- * @param[in]   hid         USBUS HID handler context
- * @param[in]   buf         buffer to submit
- * @param[in]   len         length of the submitted buffer
- *
- * @return                  Number of bytes added to the HID ring buffer
- */
-size_t usbus_hid_submit(usbus_hid_device_t *hid, const uint8_t *buf,
-                        size_t len);
-
-/**
- * @brief Flush the buffer to the USB host
- *
- * @param[in]   hid      USBUS HID handler context
- */
-void usbus_hid_flush(usbus_hid_device_t *hid);
 
 #ifdef __cplusplus
 }

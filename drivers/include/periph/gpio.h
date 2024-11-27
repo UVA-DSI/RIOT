@@ -76,6 +76,7 @@
 #define PERIPH_GPIO_H
 
 #include <limits.h>
+#include <stdbool.h>
 
 #include "periph_cpu.h"
 #include "periph_conf.h"
@@ -182,6 +183,8 @@ int gpio_init(gpio_t pin, gpio_mode_t mode);
  * @note    You have to add the module `periph_gpio_irq` to your project to
  *          enable this function
  *
+ * @pre     @p cb must not be NULL
+ *
  * @param[in] pin       pin to initialize
  * @param[in] mode      mode of the pin, see @c gpio_mode_t
  * @param[in] flank     define the active flank(s)
@@ -224,10 +227,10 @@ void gpio_irq_disable(gpio_t pin);
  *
  * @param[in] pin       the pin to read
  *
- * @return              0 when pin is LOW
- * @return              >0 for HIGH
+ * @retval              false   pin is LOW
+ * @retval              true    pin is HIGH
  */
-int gpio_read(gpio_t pin);
+bool gpio_read(gpio_t pin);
 
 /**
  * @brief   Set the given pin to HIGH
@@ -256,7 +259,7 @@ void gpio_toggle(gpio_t pin);
  * @param[in] pin       the pin to set
  * @param[in] value     value to set the pin to, 0 for LOW, HIGH otherwise
  */
-void gpio_write(gpio_t pin, int value);
+void gpio_write(gpio_t pin, bool value);
 
 /**
  * @brief   Test if a GPIO pin is equal to another GPIO pin

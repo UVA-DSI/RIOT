@@ -101,6 +101,9 @@ struct can_frame {
 struct can_filter {
     canid_t can_id;    /**< CAN ID */
     canid_t can_mask;  /**< Mask */
+#if (MODULE_CAN_RX_MAILBOX)
+    uint8_t target_mailbox; /**< The mailbox to apply the filter to */
+#endif
 };
 
 /**

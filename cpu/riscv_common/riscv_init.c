@@ -21,6 +21,21 @@
 #include "cpu_conf_common.h"
 #include "periph_cpu_common.h"
 
+#ifdef MODULE_PMP_NOEXEC_RAM
+#include "pmp.h"
+#endif
+
+#ifdef MODULE_PUF_SRAM
+#include "puf_sram.h"
+
+extern unsigned _sheap;
+
+void riscv_puf_sram_init(void)
+{
+    puf_sram_init((uint8_t *)&_sheap, SEED_RAM_LEN);
+}
+#endif /* MODULE_PUF_SRAM */
+
 void riscv_fpu_init(void)
 {
     /* Enable FPU if present */
@@ -34,4 +49,13 @@ void riscv_init(void)
 {
     riscv_fpu_init();
     riscv_irq_init();
+#ifdef MODULE_PMP_NOEXEC_RAM
+    /* This marks the (main) RAM region as non
+     * executable. Using PMP entry 0.
+     */
+    write_pmpaddr(0, make_napot(CPU_RAM_BASE, CPU_RAM_SIZE));
+
+    /* Lock & select NAPOT, only allow write and read */
+    set_pmpcfg(0, PMP_L | PMP_NAPOT | PMP_W | PMP_R);
+#endif
 }

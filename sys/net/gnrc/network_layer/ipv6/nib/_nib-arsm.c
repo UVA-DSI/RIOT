@@ -20,6 +20,7 @@
 #include "net/gnrc/ndp.h"
 #include "net/gnrc/ipv6/nib.h"
 #include "net/gnrc/netif/internal.h"
+#include "net/gnrc/netreg.h"
 #ifdef MODULE_GNRC_SIXLOWPAN_ND
 #include "net/gnrc/sixlowpan/nd.h"
 #endif  /* MODULE_GNRC_SIXLOWPAN_ND */
@@ -43,7 +44,7 @@ void _snd_ns(const ipv6_addr_t *tgt, gnrc_netif_t *netif,
     _nib_dr_entry_t *dr = _nib_drl_get(NULL, netif->pid);
 
     /* add ARO based on interface */
-    if ((src != NULL) && gnrc_netif_is_6ln(netif) &&
+    if ((src != NULL) && gnrc_netif_is_6ln(netif) && (dr != NULL) &&
         (_nib_onl_get_if(dr->next_hop) == (unsigned)netif->pid) &&
         ipv6_addr_equal(&dr->next_hop->ipv6, dst)) {
         eui64_t eui64;
@@ -93,7 +94,7 @@ void _handle_sl2ao(gnrc_netif_t *netif, const ipv6_hdr_t *ipv6,
                    const icmpv6_hdr_t *icmpv6, const ndp_opt_t *sl2ao)
 {
     assert(netif != NULL);
-    _nib_onl_entry_t *nce = _nib_onl_get(&ipv6->src, netif->pid);
+    _nib_onl_entry_t *nce = _nib_onl_nc_get(&ipv6->src, netif->pid);
     int l2addr_len;
 
     l2addr_len = gnrc_netif_ndp_addr_len_from_l2ao(netif, sl2ao);
@@ -102,7 +103,7 @@ void _handle_sl2ao(gnrc_netif_t *netif, const ipv6_hdr_t *ipv6,
         return;
     }
 #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM)
-    if ((nce != NULL) && (nce->mode & _NC) &&
+    if ((nce != NULL) &&
         ((nce->l2addr_len != l2addr_len) ||
          (memcmp(nce->l2addr, sl2ao + 1, nce->l2addr_len) != 0)) &&
         /* a 6LR MUST NOT modify an existing NCE based on an SL2AO in an RS
@@ -113,7 +114,7 @@ void _handle_sl2ao(gnrc_netif_t *netif, const ipv6_hdr_t *ipv6,
         _set_nud_state(netif, nce, GNRC_IPV6_NIB_NC_INFO_NUD_STATE_STALE);
     }
 #endif  /* CONFIG_GNRC_IPV6_NIB_ARSM */
-    if ((nce == NULL) || !(nce->mode & _NC)) {
+    if (nce == NULL) {
         DEBUG("nib: Creating NCE for (ipv6 = %s, iface = %u, nud_state = STALE)\n",
               ipv6_addr_to_str(addr_str, &ipv6->src, sizeof(addr_str)),
               netif->pid);
@@ -227,9 +228,7 @@ void _handle_snd_ns(_nib_onl_entry_t *nbr)
         case GNRC_IPV6_NIB_NC_INFO_NUD_STATE_PROBE:
             if (nbr->ns_sent >= NDP_MAX_UC_SOL_NUMOF) {
                 gnrc_netif_t *netif = gnrc_netif_get_by_pid(_nib_onl_get_if(nbr));
-
-                _set_nud_state(netif, nbr,
-                               GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNREACHABLE);
+                _set_unreachable(netif, nbr);
             }
             /* intentionally falls through */
         case GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNREACHABLE:
@@ -386,11 +385,10 @@ void _handle_adv_l2(gnrc_netif_t *netif, _nib_onl_entry_t *nce,
                 nce->info &= ~GNRC_IPV6_NIB_NC_INFO_IS_ROUTER;
             }
         }
-#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_QUEUE_PKT) && MODULE_GNRC_IPV6
         /* send queued packets */
         gnrc_pktqueue_t *ptr;
         DEBUG("nib: Sending queued packets\n");
-        while ((ptr = gnrc_pktqueue_remove_head(&nce->pktqueue)) != NULL) {
+        while ((ptr = _nbr_pop_pkt(nce)) != NULL) {
             if (!gnrc_netapi_dispatch_send(GNRC_NETTYPE_IPV6,
                                            GNRC_NETREG_DEMUX_CTX_ALL,
                                            ptr->pkt)) {
@@ -399,7 +397,7 @@ void _handle_adv_l2(gnrc_netif_t *netif, _nib_onl_entry_t *nce,
             }
             ptr->pkt = NULL;
         }
-#endif  /* CONFIG_GNRC_IPV6_NIB_QUEUE_PKT */
+
         if ((icmpv6->type == ICMPV6_NBR_ADV) &&
             !_sflag_set((ndp_nbr_adv_t *)icmpv6) &&
             (_get_nud_state(nce) == GNRC_IPV6_NIB_NC_INFO_NUD_STATE_REACHABLE) &&
@@ -436,6 +434,15 @@ void _set_reachable(gnrc_netif_t *netif, _nib_onl_entry_t *nce)
     _set_nud_state(netif, nce, GNRC_IPV6_NIB_NC_INFO_NUD_STATE_REACHABLE);
     _evtimer_add(nce, GNRC_IPV6_NIB_REACH_TIMEOUT, &nce->nud_timeout,
                  netif->ipv6.reach_time);
+}
+
+void _set_unreachable(gnrc_netif_t *netif, _nib_onl_entry_t *nce)
+{
+    DEBUG("nib: set %s to UNREACHABLE\n",
+          ipv6_addr_to_str(addr_str, &nce->ipv6, sizeof(addr_str)));
+
+    _nbr_flush_pktqueue(nce);
+    _set_nud_state(netif, nce, GNRC_IPV6_NIB_NC_INFO_NUD_STATE_UNREACHABLE);
 }
 
 void _set_nud_state(gnrc_netif_t *netif, _nib_onl_entry_t *nce,

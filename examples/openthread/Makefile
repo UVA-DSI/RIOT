@@ -7,7 +7,6 @@ BOARD ?= samr21-xpro
 BOARD_WHITELIST := \
                     samr21-xpro \
                     iotlab-m3 \
-                    fox \
                     iotlab-a8-m3 \
                     frdm-kw41z \
                     openlabs-kw41z-mini-256kib \
@@ -44,7 +43,7 @@ OPENTHREAD_TYPE ?= ftd
 USEMODULE += openthread-$(OPENTHREAD_TYPE)
 
 # Comment the following line in order to disable the OpenThread CLI
-USEMODULE += openthread-cli
+USEMODULE += openthread-cli-$(OPENTHREAD_TYPE)
 
 USEMODULE += netdev_default
 

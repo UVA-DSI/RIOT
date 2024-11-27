@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "event.h"
 #include "random.h"
 #include "timex.h"
 #include "periph/rtt.h"
@@ -55,7 +56,7 @@
  */
 static kernel_pid_t gomach_pid;
 
-static void _gomach_init(gnrc_netif_t *netif);
+static int _gomach_init(gnrc_netif_t *netif);
 static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt);
 static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif);
 static void _gomach_msg_handler(gnrc_netif_t *netif, msg_t *msg);
@@ -81,7 +82,7 @@ static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif)
 {
     netdev_t *dev = netif->dev;
     netdev_ieee802154_rx_info_t rx_info;
-    netdev_ieee802154_t *state = (netdev_ieee802154_t *)netif->dev;
+    netdev_ieee802154_t *state = container_of(dev, netdev_ieee802154_t, netdev);
     gnrc_pktsnip_t *pkt = NULL;
     int bytes_expected = dev->driver->recv(dev, NULL, 0, NULL);
 
@@ -153,8 +154,6 @@ static void gomach_reinit_radio(gnrc_netif_t *netif)
     if (IS_ACTIVE(DEVELHELP)) {
         netopt_enable_t enable;
         netif->dev->driver->get(netif->dev, NETOPT_RX_START_IRQ, &enable, sizeof(enable));
-        assert(enable == NETOPT_ENABLE);
-        netif->dev->driver->get(netif->dev, NETOPT_RX_END_IRQ, &enable, sizeof(enable));
         assert(enable == NETOPT_ENABLE);
         netif->dev->driver->get(netif->dev, NETOPT_TX_END_IRQ, &enable, sizeof(enable));
         assert(enable == NETOPT_ENABLE);
@@ -538,7 +537,8 @@ static void gomach_t2k_trans_in_cp(gnrc_netif_t *netif)
     /* If we are retransmitting the packet, use the same sequence number for the
      * packet to avoid duplicate packet reception at the receiver side. */
     if ((netif->mac.tx.no_ack_counter > 0) || (netif->mac.tx.tx_busy_count > 0)) {
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         device_state->seq = netif->mac.tx.tx_seq;
     }
 
@@ -627,7 +627,8 @@ static bool _cp_tx_busy(gnrc_netif_t *netif)
         /* Store the TX sequence number for this packet. Always use the same
          * sequence number for sending the same packet, to avoid duplicated
          * packet reception at the receiver. */
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         netif->mac.tx.tx_seq = device_state->seq - 1;
 
         netif->mac.tx.t2k_state = GNRC_GOMACH_T2K_TRANS_IN_CP;
@@ -645,7 +646,8 @@ static void _cp_tx_default(gnrc_netif_t *netif)
 
     /* This packet will be retried. Store the TX sequence number for this packet.
      * Always use the same sequence number for sending the same packet. */
-    netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+    netdev_t *netdev = netif->dev;
+    netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
     netif->mac.tx.tx_seq = device_state->seq - 1;
 
     /* If no_ack_counter reaches the threshold, regarded as phase-lock failed. So
@@ -668,7 +670,8 @@ static void gomach_t2k_wait_cp_txfeedback(gnrc_netif_t *netif)
         /* No TX-ISR, go to sleep. */
         netif->mac.tx.no_ack_counter++;
 
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         netif->mac.tx.tx_seq = device_state->seq - 1;
 
         /* Here, we don't queue the packet again, but keep it in tx.packet. */
@@ -798,7 +801,8 @@ static void gomach_t2k_trans_in_slots(gnrc_netif_t *netif)
 {
     /* If this packet is being retransmitted, use the same recorded MAC sequence number. */
     if (netif->mac.tx.no_ack_counter > 0) {
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         device_state->seq = netif->mac.tx.tx_seq;
     }
 
@@ -866,7 +870,8 @@ static void _t2k_wait_vtdma_tx_default(gnrc_netif_t *netif)
      *  the following cycle. */
     netif->mac.tx.no_ack_counter = 1;
 
-    netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+    netdev_t *netdev = netif->dev;
+    netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
     netif->mac.tx.tx_seq = device_state->seq - 1;
 
     /* Do not release the packet here, continue sending the same packet. ***/
@@ -890,7 +895,8 @@ static void gomach_t2k_wait_vtdma_transfeedback(gnrc_netif_t *netif)
         /* No TX-ISR, go to sleep. */
         netif->mac.tx.no_ack_counter++;
 
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         netif->mac.tx.tx_seq = device_state->seq - 1;
 
         /* Here, we don't queue the packet again, but keep it in tx.packet. */
@@ -1251,7 +1257,8 @@ static void gomach_t2u_send_data(gnrc_netif_t *netif)
 {
     /* If we are retrying to send the data, reload its original MAC sequence. */
     if (netif->mac.tx.no_ack_counter > 0) {
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         device_state->seq = netif->mac.tx.tx_seq;
     }
 
@@ -1326,7 +1333,8 @@ static void _t2u_data_tx_fail(gnrc_netif_t *netif)
     else {
         /* Record the MAC sequence of the data, retry t2u in next cycle. */
         netif->mac.tx.no_ack_counter = CONFIG_GNRC_GOMACH_REPHASELOCK_THRESHOLD;
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         netif->mac.tx.tx_seq = device_state->seq - 1;
 
         LOG_DEBUG("[GOMACH] t2u send data failed on channel %d.\n",
@@ -1345,7 +1353,8 @@ static void gomach_t2u_wait_tx_feedback(gnrc_netif_t *netif)
         netif->mac.tx.t2u_retry_counter++;
 
         netif->mac.tx.no_ack_counter = CONFIG_GNRC_GOMACH_REPHASELOCK_THRESHOLD;
-        netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+        netdev_t *netdev = netif->dev;
+        netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
         netif->mac.tx.tx_seq = device_state->seq - 1;
 
         gnrc_gomach_set_quit_cycle(netif, true);
@@ -1779,53 +1788,7 @@ static void gomach_vtdma_end(gnrc_netif_t *netif)
     /* Switch the radio to the public-channel. */
     gnrc_gomach_turn_channel(netif, netif->mac.prot.gomach.cur_pub_channel);
 
-    /* Check if there is packet to send. */
-    if (gnrc_gomach_find_next_tx_neighbor(netif)) {
-        if (netif->mac.tx.current_neighbor == &netif->mac.tx.neighbors[0]) {
-            /* The packet is for broadcasting. */
-            if (!gnrc_gomach_get_unintd_preamble(netif)) {
-                netif->mac.prot.gomach.basic_state = GNRC_GOMACH_TRANSMIT;
-                netif->mac.tx.transmit_state = GNRC_GOMACH_BROADCAST;
-            }
-            else {
-                netif->mac.rx.listen_state = GNRC_GOMACH_LISTEN_SLEEP_INIT;
-            }
-        }
-        else {
-            switch (netif->mac.tx.current_neighbor->mac_type) {
-                /* The packet waiting to be sent is for unicast. */
-                case GNRC_GOMACH_TYPE_UNKNOWN: {
-                    /* The neighbor's phase is unknown yet, try to run t2u (transmission
-                     * to unknown device) procedure to phase-lock the neighbor. */
-                    if (!gnrc_gomach_get_unintd_preamble(netif)) {
-                        netif->mac.prot.gomach.basic_state = GNRC_GOMACH_TRANSMIT;
-                        netif->mac.tx.transmit_state = GNRC_GOMACH_TRANS_TO_UNKNOWN;
-                    }
-                    else {
-                        netif->mac.rx.listen_state = GNRC_GOMACH_LISTEN_SLEEP_INIT;
-                    }
-                } break;
-                case GNRC_GOMACH_TYPE_KNOWN: {
-                    /* If the neighbor's phase is known, go to t2k (transmission
-                     * to known device) procedure. Here, we don't worry that the t2k
-                     * unicast transmission will interrupt with possible ongoing
-                     * preamble transmissions of other devices. */
-                    netif->mac.prot.gomach.basic_state = GNRC_GOMACH_TRANSMIT;
-                    netif->mac.tx.transmit_state = GNRC_GOMACH_TRANS_TO_KNOWN;
-                } break;
-                default: {
-                    LOG_ERROR("ERROR: [GOMACH] vTDMA: unknown MAC type of the neighbor.\n");
-                    break;
-                }
-            }
-        }
-    }
-    else {
-        /* No packet to send, go to sleep. */
-        netif->mac.rx.listen_state = GNRC_GOMACH_LISTEN_SLEEP_INIT;
-    }
-
-    gnrc_gomach_set_update(netif, true);
+    _no_vtdma_after_cp(netif);
 }
 
 static void gomach_sleep_init(gnrc_netif_t *netif)
@@ -1993,10 +1956,9 @@ static void _gomach_msg_handler(gnrc_netif_t *netif, msg_t *msg)
             /* Output GoMacH's current radio duty-cycle. */
             uint64_t duty;
             duty = xtimer_now_usec64();
-            duty = (netif->mac.prot.gomach.awake_duration_sum_ticks) * 100 /
-                   (duty - netif->mac.prot.gomach.system_start_time_ticks);
-            printf("[GoMacH]: achieved radio duty-cycle: %lu %% \n",
-                   (unsigned long)duty);
+            duty = (netif->mac.prot.gomach.awake_duration_sum_ms) * 100 /
+                   (duty - netif->mac.prot.gomach.system_start_time_ms);
+            printf("[GoMacH]: achieved radio duty-cycle: %u %% \n", (unsigned)duty);
             break;
         }
 #endif
@@ -2022,14 +1984,7 @@ static void _gomach_event_cb(netdev_t *dev, netdev_event_t event)
     gnrc_netif_t *netif = (gnrc_netif_t *) dev->context;
 
     if (event == NETDEV_EVENT_ISR) {
-        msg_t msg;
-
-        msg.type = NETDEV_MSG_TYPE_EVENT;
-        msg.content.ptr = (void *) netif;
-
-        if (msg_send(&msg, netif->pid) <= 0) {
-            DEBUG("[GOMACH] gnrc_netdev: possibly lost interrupt.\n");
-        }
+        event_post(&netif->evq[GNRC_NETIF_EVQ_INDEX_PRIO_LOW], &netif->event_isr);
     }
     else {
         DEBUG("gnrc_netdev: event triggered -> %i\n", event);
@@ -2106,11 +2061,15 @@ static void _gomach_event_cb(netdev_t *dev, netdev_event_t event)
     }
 }
 
-static void _gomach_init(gnrc_netif_t *netif)
+static int _gomach_init(gnrc_netif_t *netif)
 {
     netdev_t *dev;
 
-    gnrc_netif_default_init(netif);
+    int res = gnrc_netif_default_init(netif);
+    if (res < 0) {
+        return res;
+    }
+
     dev = netif->dev;
     dev->event_callback = _gomach_event_cb;
 
@@ -2174,7 +2133,8 @@ static void _gomach_init(gnrc_netif_t *netif)
     netif->mac.rx.check_dup_pkt.queue_head = 0;
     netif->mac.tx.last_tx_neighbor_id = 0;
 
-    netdev_ieee802154_t *device_state = (netdev_ieee802154_t *)netif->dev;
+    netdev_t *netdev = netif->dev;
+    netdev_ieee802154_t *device_state = container_of(netdev, netdev_ieee802154_t, netdev);
     device_state->seq = netif->l2addr[netif->l2addr_len - 1];
 
     /* Initialize GoMacH's duplicate-check scheme. */
@@ -2193,10 +2153,10 @@ static void _gomach_init(gnrc_netif_t *netif)
 
 #if (GNRC_MAC_ENABLE_DUTYCYCLE_RECORD == 1)
     /* Start duty cycle recording */
-    netif->mac.prot.gomach.system_start_time_ticks = xtimer_now_usec64();
-    netif->mac.prot.gomach.last_radio_on_time_ticks =
-        netif->mac.prot.gomach.system_start_time_ticks;
-    netif->mac.prot.gomach.awake_duration_sum_ticks = 0;
+    netif->mac.prot.gomach.system_start_time_ms = xtimer_now_usec64();
+    netif->mac.prot.gomach.last_radio_on_time_ms =
+        netif->mac.prot.gomach.system_start_time_ms;
+    netif->mac.prot.gomach.awake_duration_sum_ms = 0;
     netif->mac.prot.gomach.gomach_info |= GNRC_GOMACH_INTERNAL_INFO_RADIO_IS_ON;
 #endif
 
@@ -2206,4 +2166,6 @@ static void _gomach_init(gnrc_netif_t *netif)
         gnrc_gomach_set_update(netif, false);
         gomach_update(netif);
     }
+
+    return 0;
 }

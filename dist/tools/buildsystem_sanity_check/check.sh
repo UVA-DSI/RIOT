@@ -16,42 +16,30 @@
 : "${RIOTBASE:="$(cd "$(dirname "$0")/../../../" || exit; pwd)"}"
 
 : "${RIOTTOOLS:=${RIOTBASE}/dist/tools}"
+: "${RIOTMAKE:=${RIOTBASE}/makefiles}"
+# not running shellcheck with -x in the CI --> disable SC1091
+# shellcheck disable=SC1091
 . "${RIOTTOOLS}"/ci/github_annotate.sh
 
 SCRIPT_PATH=dist/tools/buildsystem_sanity_check/check.sh
 
-
-tab_indent() {
-    # Ident using 'bashism' to to the tab compatible with 'bsd-sed'
-    sed 's/^/\'$'\t/'
-}
-
-prepend() {
-    # 'i' needs 'i\{newline}' and a newline after for 'bsd-sed'
-    sed '1i\
-'"$1"'
-'
-}
-
 error_with_message() {
-    while read INPUT; do
+    while read -r INPUT; do
+        MESSAGE="${1}"
         if github_annotate_is_on; then
-            MESSAGE="${1}"
             FILE=$(echo "${INPUT}" | cut -d: -f1)
             LINE=$(echo "${INPUT}" | cut -d: -f2)
             MATCH=$(echo "${INPUT}" | cut -d: -f3)
-            if [[ $var =~ ^[0-9]+$ ]] || [  -z "$MATCH" ]; then
+            if [[ ! $LINE =~ ^[0-9]+$ ]] || [  -z "$MATCH" ]; then
                 # line is not provided in grep pattern
                 LINE=0
             fi
             github_annotate_error "$FILE" "$LINE" "$MESSAGE"
         fi
-        # We need to generate non GitHub annotations for this script to fail.
-        # Also, the pure annotate output is not very helpful on its own ;-)
-        echo "${INPUT}" | tab_indent | prepend "${1}:"
+
+        printf "%s:\n\t%s\n\n" "${MESSAGE}" "${INPUT}"
     done
 }
-
 
 # Modules should not check the content of FEATURES_PROVIDED/_REQUIRED/OPTIONAL
 # Handling specific behaviors/dependencies should by checking the content of:
@@ -73,6 +61,12 @@ check_not_parsing_features() {
 
     # These two files contain sanity checks using FEATURES_ so are allowed
     pathspec+=(':!Makefile.include' ':!makefiles/info-global.inc.mk')
+
+    # We extend FEATURES_PROVIDED in Makefile.features based on what is
+    # already provided to avoid clutter in each boards Makefile.features.
+    # E.g. `periph_eth` will pull in `netif_ethernet`, which
+    # will pull in `netif`.
+    pathspec+=(':!Makefile.features')
 
     git -C "${RIOTBASE}" grep -n "${patterns[@]}" -- "${pathspec[@]}" \
         | error_with_message 'Modules should not check the content of FEATURES_PROVIDED/REQUIRED/OPTIONAL'
@@ -107,6 +101,7 @@ UNEXPORTED_VARIABLES+=('FLASHER' 'FFLAGS')
 UNEXPORTED_VARIABLES+=('RESET' 'RESETFLAGS')
 UNEXPORTED_VARIABLES+=('DEBUGGER' 'DEBUGGER_FLAGS')
 UNEXPORTED_VARIABLES+=('DEBUGSERVER' 'DEBUGSERVER_FLAGS')
+UNEXPORTED_VARIABLES+=('DEBUGCLIENT' 'DEBUGCLIENT_FLAGS')
 UNEXPORTED_VARIABLES+=('PREFLASHER' 'PREFFLAGS' 'FLASHDEPS')
 UNEXPORTED_VARIABLES+=('OPENOCD_DEBUG_ADAPTER' 'DEBUG_ADAPTER_ID')
 UNEXPORTED_VARIABLES+=('PROGRAMMER_SERIAL')
@@ -124,7 +119,7 @@ UNEXPORTED_VARIABLES+=('OPENOCD_PRE_FLASH_CHECK_SCRIPT')
 UNEXPORTED_VARIABLES+=('PYOCD_FLASH_TARGET_TYPE')
 UNEXPORTED_VARIABLES+=('PYOCD_ADAPTER_INIT')
 UNEXPORTED_VARIABLES+=('JLINK_DEVICE' 'JLINK_IF')
-UNEXPORTED_VARIABLES+=('JLINK_PRE_FLASH' 'JLINK_RESET_FILE')
+UNEXPORTED_VARIABLES+=('JLINK_PRE_FLASH' 'JLINK_POST_FLASH' 'JLINK_RESET_FILE')
 UNEXPORTED_VARIABLES+=('GIT_CACHE' 'GIT_CACHE_DIR')
 UNEXPORTED_VARIABLES+=('LINKXX')
 UNEXPORTED_VARIABLES+=('APPDEPS' 'BUILDDEPS' 'DEBUGDEPS')
@@ -171,7 +166,7 @@ check_not_exporting_variables() {
     # Only run if there are patterns, otherwise it matches everything
     if [ ${#patterns[@]} -ne 0 ]; then
         git -C "${RIOTBASE}" grep -n "${patterns[@]}" -- "${pathspec[@]}" \
-            | error_with_message 'Variables must only be exported in `makefiles/vars.inc.mk`'
+            | error_with_message "Variables must only be exported in \`makefiles/vars.inc.mk\`"
     fi
 }
 
@@ -200,9 +195,7 @@ check_board_do_not_include_cpu_features_dep() {
     local patterns=()
     local pathspec=()
 
-    # shellcheck disable=SC2016
-    # Single quotes are used to not expand expressions
-    patterns+=(-e 'include $(RIOTCPU)/.*/Makefile\..*')
+    patterns+=(-e "include \$(RIOTCPU)/.*/Makefile\..*")
 
     pathspec+=('boards/')
 
@@ -261,7 +254,7 @@ checks_tests_application_not_defined_in_makefile() {
     patterns+=(-e '^[[:space:]]*APPLICATION[[:space:]:+]=')
 
     pathspec+=('tests/**/Makefile')
-    pathspec+=(':!tests/external_board_native/Makefile')
+    pathspec+=(':!tests/build_system/external_board_native/Makefile')
 
     git -C "${RIOTBASE}" grep -n "${patterns[@]}" -- "${pathspec[@]}" \
         | error_with_message "Don't define APPLICATION in test Makefile"
@@ -286,14 +279,14 @@ check_files_in_boards_not_reference_board_var() {
     local patterns=()
     local pathspec=()
 
-    patterns+=(-e '/$(BOARD)/')
+    patterns+=(-e "/\$(BOARD)/")
 
     pathspec+=('boards/')
     # boards/common/nrf52 uses a hack to resolve dependencies early
     pathspec+=(':!boards/common/nrf52/Makefile.include')
 
     git -C "${RIOTBASE}" grep -n "${patterns[@]}" -- "${pathspec[@]}" \
-        | error_with_message 'Code in boards/ should not use $(BOARDS) to reference files since this breaks external BOARDS changing BOARDSDIR"'
+        | error_with_message "Code in boards/ should not use \$(BOARDS) to reference files since this breaks external BOARDS changing BOARDSDIR"
 }
 
 check_no_pseudomodules_in_makefile_dep() {
@@ -334,6 +327,74 @@ check_no_pkg_source_local() {
         | error_with_message "Don't push PKG_SOURCE_LOCAL definitions upstream"
 }
 
+check_no_riot_config() {
+    local patterns=()
+    local pathspec=()
+
+    patterns+=(-e 'RIOT_CONFIG_.*')
+
+    pathspec+=('Makefile*')
+    pathspec+=('**/Makefile*')
+    pathspec+=('**/*.mk')
+    pathspec+=(':!makefiles/kconfig.mk')
+    pathspec+=(':!makefiles/docker.inc.mk')
+    git -C "${RIOTBASE}" grep -n "${patterns[@]}" -- "${pathspec[@]}" \
+        | error_with_message "Don't push RIOT_CONFIG_* definitions upstream. Rather define configuration via Kconfig"
+}
+
+check_stderr_null() {
+    local patterns=()
+    local pathspec=()
+
+    patterns+=(-e '2>[[:blank:]]*&1[[:blank:]]*>[[:blank:]]*/dev/null')
+
+    pathspec+=('Makefile*')
+    pathspec+=('**/Makefile*')
+    pathspec+=('**/*.mk')
+    git -C "${RIOTBASE}" grep -n "${patterns[@]}" -- "${pathspec[@]}" \
+        | error_with_message "Redirecting stderr and stdout to /dev/null is \`>/dev/null 2>&1\`; the other way round puts the old stderr to the new stdout."
+}
+
+# Test application directories that starts by the following strings are invalid
+# and should moved to the corresponding tests subdirectory.
+FORBIDDEN_TEST_DIRS=()
+FORBIDDEN_TEST_DIRS+=('build_system')
+FORBIDDEN_TEST_DIRS+=('core')       # => move under tests/core
+FORBIDDEN_TEST_DIRS+=('cpu')        # => move under tests/cpu
+FORBIDDEN_TEST_DIRS+=('driver')     # => move under tests/drivers
+FORBIDDEN_TEST_DIRS+=('gnrc')       # => move under tests/net
+FORBIDDEN_TEST_DIRS+=('periph')     # => move under tests/periph
+FORBIDDEN_TEST_DIRS+=('net')        # => move under tests/net
+FORBIDDEN_TEST_DIRS+=('pkg')        # => move under tests/pkg
+FORBIDDEN_TEST_DIRS+=('sys')        # => move under tests/sys
+FORBIDDEN_TEST_DIRS+=('vfs')        # => move under tests/sys
+FORBIDDEN_TEST_DIRS+=('xtimer')     # => move under tests/sys
+FORBIDDEN_TEST_DIRS+=('ztimer')     # => move under tests/sys
+
+check_tests_application_path() {
+    local patterns=()
+    patterns+=(-regex "^tests/bench_.*/Makefile")
+    for forbidden in "${FORBIDDEN_TEST_DIRS[@]}"; do
+        patterns+=(-o -regex "^tests/${forbidden}_.*/Makefile")
+    done
+
+    find tests/ -type f "${patterns[@]}" | error_with_message "Invalid application path in tests/"
+}
+
+check_pinned_docker_version_is_up_to_date() {
+    local pinned_repo_digest
+    local upstream_repo_digest
+    pinned_repo_digest="$(awk '/^DOCKER_TESTED_IMAGE_REPO_DIGEST := (.*)$/ { print substr($0, index($0, $3)); exit }' "$RIOTMAKE/docker.inc.mk")"
+    # not using docker and jq here but a python script to not have to install
+    # more stuff for the static test docker image
+    IFS=' ' read -r upstream_repo_digest <<< "$("$RIOTTOOLS/buildsystem_sanity_check/get_dockerhub_digests.py" "riot/riotbuild")"
+
+    if [ "$pinned_repo_digest" != "$upstream_repo_digest" ]; then
+        git -C "${RIOTBASE}" grep -n '^DOCKER_TESTED_IMAGE_REPO_DIGEST :=' "$RIOTMAKE/docker.inc.mk" \
+            | error_with_message  "Update manifest digest to ${upstream_repo_digest}"
+    fi
+}
+
 error_on_input() {
     ! grep ''
 }
@@ -353,17 +414,16 @@ all_checks() {
     check_no_pseudomodules_in_makefile_dep
     check_no_usemodules_in_makefile_include
     check_no_pkg_source_local
+    check_no_riot_config
+    check_stderr_null
+    check_tests_application_path
+    check_pinned_docker_version_is_up_to_date
 }
-
-main() {
-    all_checks | prepend 'Invalid build system patterns found by '"${0}:" | error_on_input >&2
-    exit $?
-}
-
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     github_annotate_setup
-    main
+    all_checks | error_on_input
+    result="$?"
     github_annotate_teardown
-    github_annotate_report_last_run
+    exit "${result}"
 fi

@@ -45,7 +45,6 @@ extern "C" {
 int cipher_encrypt_ecb(const cipher_t *cipher, const uint8_t *input,
                        size_t length, uint8_t *output);
 
-
 /**
  * @brief Decrypts data of arbitrary length in ecb mode.
  *
@@ -54,7 +53,7 @@ int cipher_encrypt_ecb(const cipher_t *cipher, const uint8_t *input,
  * @param input      pointer to input data to decrypt
  * @param length     length of the input data
  * @param output     pointer to allocated memory for plaintext data. It has to
- *                   be of size `lengh`.
+ *                   be of size `length`.
  *
  * @return           Length of decrypted data on a successful decryption
  * @return           A negative error code if something went wrong

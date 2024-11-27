@@ -27,20 +27,22 @@ export KCONFIG_AUTOHEADER_HEADER
 export KCONFIG_GENERATED_DEPENDENCIES = $(GENERATED_DIR)/Kconfig.dep
 
 # This file will contain external module configurations
-export KCONFIG_EXTERNAL_CONFIGS = $(GENERATED_DIR)/Kconfig.external_modules
+export KCONFIG_EXTERNAL_MODULE_CONFIGS = $(GENERATED_DIR)/Kconfig.external_modules
 
-# Add configurations that only work when running the Kconfig test so far,
-# because they activate modules.
-ifeq (1,$(TEST_KCONFIG))
-  # This file will contain application default configurations
-  KCONFIG_APP_CONFIG = $(APPDIR)/app.config.test
-else
-  # This file will contain application default configurations
-  KCONFIG_APP_CONFIG = $(APPDIR)/app.config
-endif
+# This file will contain external package configurations
+export KCONFIG_EXTERNAL_PKG_CONFIGS = $(GENERATED_DIR)/Kconfig.external_pkgs
+
+# This file will contain application default configurations
+KCONFIG_APP_CONFIG = $(APPDIR)/app.config
+
 
 # Default and user overwritten configurations
 KCONFIG_USER_CONFIG = $(APPDIR)/user.config
+
+# This file will contain configuration using the `RIOT_CONFIG_<CONFIG>`
+# environment variables. Used to enforce a rerun of GENCONFIG when environment
+# changes.
+KCONFIG_GENERATED_ENV_CONFIG = $(GENERATED_DIR)/env.config
 
 # This is the output of the generated configuration. It always mirrors the
 # content of KCONFIG_GENERATED_AUTOCONF_HEADER_C, and it is used to load
@@ -56,13 +58,18 @@ KCONFIG_OUT_DEP = $(KCONFIG_OUT_CONFIG).d
 # Add configurations to merge, in ascendent priority (i.e. a file overrides the
 # previous ones).
 #
-# KCONFIG_ADD_CONFIG holds a list of .config files that are merged for the
-# initial configuration. This allows to split configurations in common files
-# and share them among boards or cpus.
+# KCONFIG_CPU_CONFIG, KCONFIG_BOARD_CONFIG and KCONFIG_ADD_CONFIG hold a lists
+# of .config files that are merged for the initial configuration. This allows
+# to split configurations in common files and share them among boards or cpus.
+# Files are merged from more generic to more specific.
 # This file will contain application default configurations used for Kconfig Test
+MERGE_SOURCES += $(KCONFIG_CPU_CONFIG)
+MERGE_SOURCES += $(KCONFIG_BOARD_CONFIG)
 MERGE_SOURCES += $(KCONFIG_ADD_CONFIG)
 MERGE_SOURCES += $(wildcard $(KCONFIG_APP_CONFIG))
 MERGE_SOURCES += $(wildcard $(KCONFIG_USER_CONFIG))
+
+MERGE_SOURCES += $(KCONFIG_GENERATED_ENV_CONFIG)
 
 # Create directory to place generated files
 $(GENERATED_DIR): $(if $(MAKE_RESTARTS),,$(CLEAN))
@@ -70,11 +77,14 @@ $(GENERATED_DIR): $(if $(MAKE_RESTARTS),,$(CLEAN))
 
 # During migration this checks if Kconfig should run. It will run if any of
 # the following is true:
-# - A file with '.config' extension is present in the application directory
-# - A 'Kconfig' file is present in the application directory
 # - A previous configuration file is present (e.g. from a previous call to
 #   menuconfig)
 # - menuconfig is being called
+# - SHOULD_RUN_KCONFIG is set
+#
+# By default SHOULD_RUN_KCONFIG is set if any of the following is true:
+# - A file with '.config' extension is present in the application directory
+# - A 'Kconfig' file is present in the application directory
 #
 # NOTE: This assumes that Kconfig will not generate any default configurations
 # just from the Kconfig files outside the application folder (i.e. module
@@ -82,15 +92,19 @@ $(GENERATED_DIR): $(if $(MAKE_RESTARTS),,$(CLEAN))
 # check would not longer be valid, and Kconfig would have to run on every
 # build.
 SHOULD_RUN_KCONFIG ?= $(or $(wildcard $(APPDIR)/*.config), \
-                           $(wildcard $(APPDIR)/Kconfig), \
-                           $(if $(CLEAN),,$(wildcard $(KCONFIG_OUT_CONFIG))))
+                           $(wildcard $(APPDIR)/Kconfig))
 
 ifneq (,$(filter menuconfig, $(MAKECMDGOALS)))
   SHOULD_RUN_KCONFIG := 1
 endif
 
-# When testing Kconfig we should always run it
-ifeq (1,$(TEST_KCONFIG))
+ifneq (,$(if $(CLEAN),,$(wildcard $(KCONFIG_OUT_CONFIG))))
+  ifeq (,$(SHOULD_RUN_KCONFIG))
+    WARNING_MSG := Warning! SHOULD_RUN_KCONFIG is not set but a previous \
+                   configuration file was detected (did you run \
+                  `make menuconfig`?). Kconfig will run regardless.
+    $(warning $(WARNING_MSG))
+  endif
   SHOULD_RUN_KCONFIG := 1
 endif
 
@@ -122,11 +136,7 @@ menuconfig: $(MENUCONFIG) $(KCONFIG_OUT_CONFIG)
 	$(Q)KCONFIG_CONFIG=$(KCONFIG_OUT_CONFIG) $(MENUCONFIG) $(KCONFIG)
 	$(MAKE) $(KCONFIG_GENERATED_AUTOCONF_HEADER_C)
 
-# Variable used to conditionally depend on KCONFIG_GENERATED_DEPDENDENCIES
-# When testing Kconfig module modelling this file is not needed
-ifneq (1, $(TEST_KCONFIG))
-  GENERATED_DEPENDENCIES_DEP = $(KCONFIG_GENERATED_DEPENDENCIES)
-endif
+GENERATED_DEPENDENCIES_DEP = $(KCONFIG_GENERATED_DEPENDENCIES)
 
 # These rules are not included when only calling `make clean` in
 # order to keep the $(BINDIR) directory clean.
@@ -143,13 +153,21 @@ $(KCONFIG_GENERATED_DEPENDENCIES): FORCE | $(GENERATED_DIR)
 	      printf "config %s\n\tbool\n\tdefault y\n", toupper($$0)}' \
 	  | $(LAZYSPONGE) $(LAZYSPONGE_FLAGS) $@
 
+KCONFIG_ENV_CONFIG = $(patsubst RIOT_%,%,$(foreach v,$(filter RIOT_CONFIG_%,$(.VARIABLES)),$(v)=$($(v))))
+
+# Build an intermediate file based on the `RIOT_CONFIG_<CONFIG>` environment
+# variables
+$(KCONFIG_GENERATED_ENV_CONFIG): FORCE | $(GENERATED_DIR)
+	$(Q)printf "%s\n" $(KCONFIG_ENV_CONFIG) \
+	  | $(LAZYSPONGE) $(LAZYSPONGE_FLAGS) $@
+
 # All directories in EXTERNAL_MODULES_PATHS which have a Kconfig file
-EXTERNAL_MODULE_KCONFIGS ?= $(sort $(foreach dir,$(EXTERNAL_MODULE_PATHS),\
-                              $(wildcard $(dir)/Kconfig)))
+EXTERNAL_MODULE_KCONFIGS ?= $(sort $(foreach dir,$(EXTERNAL_MODULE_DIRS),\
+                              $(wildcard $(dir)/*/Kconfig)))
 # Build a Kconfig file that source all external modules configuration
 # files. Every EXTERNAL_MODULE_DIRS with a Kconfig file is written to
-# KCONFIG_EXTERNAL_CONFIGS as 'osource dir/Kconfig'
-$(KCONFIG_EXTERNAL_CONFIGS): FORCE | $(GENERATED_DIR)
+# KCONFIG_EXTERNAL_MODULE_CONFIGS as 'osource dir/Kconfig'
+$(KCONFIG_EXTERNAL_MODULE_CONFIGS): FORCE | $(GENERATED_DIR)
 	$(Q)\
 	if [ -n "$(EXTERNAL_MODULE_KCONFIGS)" ] ; then  \
 		printf "%s\n" $(EXTERNAL_MODULE_KCONFIGS) \
@@ -157,6 +175,24 @@ $(KCONFIG_EXTERNAL_CONFIGS): FORCE | $(GENERATED_DIR)
 		| $(LAZYSPONGE) $(LAZYSPONGE_FLAGS) $@ ; \
 	else \
 		printf "# no external modules" \
+		| $(LAZYSPONGE) $(LAZYSPONGE_FLAGS) $@ ; \
+	fi
+
+# All directories in EXTERNAL_PKG_DIRS which have a subdirectory containing a
+# Kconfig file.
+EXTERNAL_PKG_KCONFIGS ?= $(sort $(foreach dir,$(EXTERNAL_PKG_DIRS),\
+                              $(wildcard $(dir)/*/Kconfig)))
+# Build a Kconfig file that sources all external packages configuration
+# files. Every directory with a Kconfig file is written to KCONFIG_PKG_CONFIGS
+# as 'osource dir/Kconfig'
+$(KCONFIG_EXTERNAL_PKG_CONFIGS): FORCE | $(GENERATED_DIR)
+	$(Q)\
+	if [ -n "$(EXTERNAL_PKG_KCONFIGS)" ] ; then  \
+		printf "%s\n" $(EXTERNAL_PKG_KCONFIGS) \
+		| awk '{ printf "osource \"%s\"\n", $$0 }' \
+		| $(LAZYSPONGE) $(LAZYSPONGE_FLAGS) $@ ; \
+	else \
+		printf "# no external packages" \
 		| $(LAZYSPONGE) $(LAZYSPONGE_FLAGS) $@ ; \
 	fi
 
@@ -176,7 +212,7 @@ GENERATED_DIR_DEP := $(if $(CLEAN),,|) $(GENERATED_DIR)
 # Generates a .config file by merging multiple sources specified in
 # MERGE_SOURCES. This will also generate KCONFIG_OUT_DEP with the list of used
 # Kconfig files.
-$(KCONFIG_OUT_CONFIG): $(KCONFIG_EXTERNAL_CONFIGS) | pkg-prepare
+$(KCONFIG_OUT_CONFIG): $(KCONFIG_EXTERNAL_MODULE_CONFIGS) $(KCONFIG_EXTERNAL_PKG_CONFIGS)
 $(KCONFIG_OUT_CONFIG): $(GENERATED_DEPENDENCIES_DEP) $(GENCONFIG) $(MERGE_SOURCES) $(GENERATED_DIR_DEP)
 	$(Q) $(GENCONFIG) \
 	  --config-out=$(KCONFIG_OUT_CONFIG) \

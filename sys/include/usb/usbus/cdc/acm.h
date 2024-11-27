@@ -7,6 +7,19 @@
  */
 
 /**
+ * @defgroup    usbus_cdc_acm_stdio  STDIO over CDC ACM (usbus)
+ * @ingroup     sys_stdio
+ * @brief       Standard input/output backend using usbus CDC ACM.
+ *
+ * This will provide STDIO via a virtual COM port over USB.
+ * It can be enabled with
+ *
+ *    USEMODULE += stdio_cdc_acm
+ *
+ * @see         usbus_cdc_acm
+ */
+
+/**
  * @defgroup    usbus_cdc_acm USBUS CDC ACM - USBUS CDC abstract control model
  * @ingroup     usb
  * @brief       USBUS CDC ACM interface module
@@ -77,6 +90,16 @@ extern "C" {
 #define USBUS_CDC_ACM_INT_EP_SIZE      (8)
 
 /**
+ * @brief Number of IN EPs required for the CDC ACM interface
+ */
+#define USBUS_CDC_ACM_EP_IN_REQUIRED_NUMOF   2
+
+/**
+ * @brief Number of Out EPs required for the CDC ACM interface
+ */
+#define USBUS_CDC_ACM_EP_OUT_REQUIRED_NUMOF  1
+
+/**
  * @brief CDC ACM line state as reported by the host computer
  */
 typedef enum {
@@ -142,6 +165,16 @@ struct usbus_cdcacm_device {
     usbus_cdcacm_line_state_t state;    /**< Current line state              */
     event_t flush;                      /**< device2host forced flush event  */
     usb_req_cdcacm_coding_t coding;     /**< Current coding configuration    */
+
+    /**
+     * @brief Host to device data buffer
+     */
+    usbdev_ep_buf_t out_buf[CONFIG_USBUS_CDC_ACM_BULK_EP_SIZE];
+
+    /**
+     * @brief Device to host data buffer
+     */
+    usbdev_ep_buf_t in_buf[CONFIG_USBUS_CDC_ACM_STDIO_BUF_SIZE];
 };
 
 /**

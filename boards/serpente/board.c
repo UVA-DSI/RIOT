@@ -41,7 +41,6 @@ static const mtd_spi_nor_params_t _serpente_nor_params = {
     .cs = SERPENTE_NOR_SPI_CS,
     .wp = GPIO_UNDEF,
     .hold = GPIO_UNDEF,
-    .addr_width = 3,
 };
 
 static mtd_spi_nor_t serpente_nor_dev = {
@@ -54,20 +53,5 @@ static mtd_spi_nor_t serpente_nor_dev = {
     .params = &_serpente_nor_params,
 };
 
-mtd_dev_t *mtd0 = (mtd_dev_t *)&serpente_nor_dev;
+MTD_XFA_ADD(serpente_nor_dev, 0);
 #endif /* MODULE_MTD */
-
-void board_init(void)
-{
-    /* initialize the CPU */
-    cpu_init();
-
-    /* initialize the on-board red LEDs */
-    gpio_init(LED0_PIN, GPIO_OUT);
-    gpio_init(LED1_PIN, GPIO_OUT);
-    gpio_init(LED2_PIN, GPIO_OUT);
-
-    LED0_OFF;
-    LED1_OFF;
-    LED2_OFF;
-}

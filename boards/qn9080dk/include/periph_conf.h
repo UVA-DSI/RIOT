@@ -21,12 +21,23 @@
 
 #include <stdint.h>
 
+#include "macros/units.h"
 #include "cpu.h"
 #include "periph_cpu.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @name    Clock configuration
+ * @{
+ */
+#ifndef CLOCK_CORECLOCK
+/* Using 32MHz internal oscillator as default clock source */
+#define CLOCK_CORECLOCK     MHZ(32)     /**< System core clock frequency in Hz */
+#endif
+/** @} */
 
 /**
  * @name ADC configuration
@@ -57,7 +68,7 @@ static const adc_conf_t adc_config[] = {
  */
 static const i2c_conf_t i2c_config[] = {
     {
-        .dev          = I2C1,
+        .dev          = I2C0,   /* Flexcomm 1 */
         .pin_scl      = GPIO_PIN(PORT_A, 6),
         .pin_sda      = GPIO_PIN(PORT_A, 7),
         .speed        = I2C_SPEED_FAST,
@@ -94,7 +105,7 @@ static const spi_conf_t spi_config[] = {
  */
 static const uart_conf_t uart_config[] = {
     {
-        .dev          = USART0,
+        .dev          = USART0, /* Flexcomm 0 */
         .rx_pin       = GPIO_PIN(PORT_A, 17),
         .tx_pin       = GPIO_PIN(PORT_A, 16),
     },

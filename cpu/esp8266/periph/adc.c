@@ -37,10 +37,9 @@ int adc_init(adc_t line)
 {
     CHECK_PARAM_RET (line < ADC_NUMOF, -1)
 
-    /* no special inialization needed */
+    /* no special initialization needed */
     return 0;
 }
-
 
 int32_t adc_sample(adc_t line, adc_res_t res)
 {

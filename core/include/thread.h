@@ -43,11 +43,11 @@
  * In addition to the priority, flags can be used when creating a thread to
  * alter the thread's behavior after creation. The following flags are available:
  *
- *  Flags                         | Description
- *  ----------------------------- | --------------------------------------------------
- *  @ref THREAD_CREATE_SLEEPING   | the thread will sleep until woken up manually
- *  @ref THREAD_CREATE_WOUT_YIELD | the thread might not run immediately after creation
- *  @ref THREAD_CREATE_STACKTEST  | measures the stack's memory usage
+ *  Flags                          | Description
+ *  ------------------------------ | --------------------------------------------------
+ *  @ref THREAD_CREATE_SLEEPING    | the thread will sleep until woken up manually
+ *  @ref THREAD_CREATE_WOUT_YIELD  | the thread might not run immediately after creation
+ *  @ref THREAD_CREATE_NO_STACKTEST| never measure the stack's memory usage
  *
  * Thread creation
  * ===============
@@ -83,7 +83,7 @@
  * int main(void)
  * {
  *     thread_create(rcv_thread_stack, sizeof(rcv_thread_stack),
- *                   THREAD_PRIORITY_MAIN - 1, THREAD_CREATE_STACKTEST,
+ *                   THREAD_PRIORITY_MAIN - 1, 0,
  *                   rcv_thread, NULL, "rcv_thread");
  * }
  * ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -122,7 +122,6 @@
 #include "clist.h"
 #include "cib.h"
 #include "msg.h"
-#include "cpu_conf.h"
 #include "sched.h"
 #include "thread_config.h"
 
@@ -130,7 +129,7 @@
 #include "thread_flags.h"
 #endif
 
-#include "thread_arch.h"
+#include "thread_arch.h" /* IWYU pragma: export */
 
 #ifdef __cplusplus
 extern "C" {
@@ -193,7 +192,7 @@ struct _thread {
     msg_t *msg_array;               /**< memory holding messages sent
                                          to this thread's message queue */
 #endif
-#if defined(DEVELHELP) || defined(SCHED_TEST_STACK) \
+#if defined(DEVELHELP) || IS_ACTIVE(SCHED_TEST_STACK) \
     || defined(MODULE_MPU_STACK_GUARD) || defined(DOXYGEN)
     char *stack_start;              /**< thread's stack start address   */
 #endif
@@ -206,9 +205,6 @@ struct _thread {
 /* enable TLS only when Picolibc is compiled with TLS enabled */
 #ifdef PICOLIBC_TLS
     void *tls;                      /**< thread local storage ptr */
-#endif
-#ifdef HAVE_THREAD_ARCH_T
-    thread_arch_t arch;             /**< architecture dependent part    */
 #endif
 };
 
@@ -235,10 +231,20 @@ struct _thread {
 #define THREAD_CREATE_WOUT_YIELD        (4)
 
 /**
- * @brief Write markers into the thread's stack to measure stack usage (for
- *        debugging and profiling purposes)
+ * @brief Never write markers into the thread's stack to measure stack usage
+ *
+ * This flag is ignored when DEVELHELP or SCHED_TEST_STACK is not enabled
  */
-#define THREAD_CREATE_STACKTEST         (8)
+#define THREAD_CREATE_NO_STACKTEST      (8)
+
+/**
+ * @brief Legacy flag kept for compatibility.
+ *
+ * @deprecated will be removed after 2025.07 release
+ *
+ * This is always enabled with `DEVELHELP=1` or `SCHED_TEST_STACK`.
+ */
+#define THREAD_CREATE_STACKTEST         (0)
 /** @} */
 
 /**
@@ -325,7 +331,14 @@ void thread_sleep(void);
  *
  * @see     thread_yield_higher()
  */
+#if defined(MODULE_CORE_THREAD) || DOXYGEN
 void thread_yield(void);
+#else
+static inline void thread_yield(void)
+{
+    /* NO-OP */
+}
+#endif
 
 /**
  * @brief   Lets current thread yield in favor of a higher prioritized thread.
@@ -436,20 +449,32 @@ void thread_add_to_list(list_node_t *list, thread_t *thread);
  * @return          the threads name
  * @return          `NULL` if pid is unknown
  */
+#if defined(MODULE_CORE_THREAD) || DOXYGEN
 const char *thread_getname(kernel_pid_t pid);
+#else
+static inline const char *thread_getname(kernel_pid_t pid)
+{
+    (void)pid;
+    return "(none)";
+}
+#endif
 
-#ifdef DEVELHELP
 /**
- * @brief Measures the stack usage of a stack
+ * @brief       Measures the stack usage of a stack
+ * @internal    Should not be used externally
  *
- * Only works if the thread was created with the flag THREAD_CREATE_STACKTEST.
+ * Only works if the stack is filled with canaries
+ * (`*((uintptr_t *)ptr) == (uintptr_t)ptr` for naturally aligned `ptr` within
+ * the stack).
+ * This is enabled if `DEVELHELP` or `SCHED_TEST_STACK` is set.
  *
- * @param[in] stack the stack you want to measure. Try `thread_get_active()->stack_start`
+ * @param[in] stack     the stack you want to measure. Try
+ *                      `thread_get_stackstart(thread_get_active())`
+ * @param[in] size      size of @p stack in bytes
  *
- * @return          the amount of unused space of the thread's stack
+ * @return              the amount of unused space of the thread's stack
  */
-uintptr_t thread_measure_stack_free(const char *stack);
-#endif /* DEVELHELP */
+uintptr_t measure_stack_free_internal(const char *stack, size_t size);
 
 /**
  * @brief   Get the number of bytes used on the ISR stack
@@ -508,6 +533,17 @@ static inline thread_status_t thread_get_status(const thread_t *thread)
 }
 
 /**
+ * Get a thread's priority
+ *
+ * @param   thread   thread to work on
+ * @returns priority of thread
+ */
+static inline uint8_t thread_get_priority(const thread_t *thread)
+{
+    return thread->priority;
+}
+
+/**
  * Returns if a thread is active (currently running or waiting to be scheduled)
  *
  * @param   thread   thread to work on
@@ -525,6 +561,99 @@ static inline bool thread_is_active(const thread_t *thread)
  * @returns ptr to string representation of thread state (or to "unknown")
  */
 const char *thread_state_to_string(thread_status_t state);
+
+/**
+ * Get start address (lowest) of a thread's stack.
+ *
+ * @param   thread thread to work on
+ * @returns current stack pointer, or NULL if not available
+ */
+static inline void *thread_get_stackstart(const thread_t *thread)
+{
+#if defined(DEVELHELP) || IS_ACTIVE(SCHED_TEST_STACK) \
+    || defined(MODULE_MPU_STACK_GUARD)
+    return thread->stack_start;
+#else
+    (void)thread;
+    return NULL;
+#endif
+}
+
+/**
+ * Get stored Stack Pointer of thread.
+ *
+ * *Only provides meaningful value if the thread is not currently running!*.
+ *
+ * @param   thread thread to work on
+ * @returns current stack pointer
+ */
+static inline void *thread_get_sp(const thread_t *thread)
+{
+    return thread->sp;
+}
+
+/**
+ * Get size of a thread's stack.
+ *
+ * @param   thread thread to work on
+ * @returns thread stack size, or 0 if not available
+ */
+static inline size_t thread_get_stacksize(const thread_t *thread)
+{
+#if defined(DEVELHELP)
+    return thread->stack_size;
+#else
+    (void)thread;
+    return 0;
+#endif
+}
+
+/**
+ * Get PID of thread.
+ *
+ * This is a simple getter for thread->pid.
+ *
+ * @param   thread thread to work on
+ * @returns thread pid
+ */
+static inline kernel_pid_t thread_getpid_of(const thread_t *thread)
+{
+    return thread->pid;
+}
+
+/**
+ * Get name of thread.
+ *
+ * @param   thread thread to work on
+ * @returns thread name or NULL if not available
+ */
+static inline const char *thread_get_name(const thread_t *thread)
+{
+#if defined(CONFIG_THREAD_NAMES)
+    return thread->name;
+#else
+    (void)thread;
+    return NULL;
+#endif
+}
+
+/**
+ * @brief       Measures the stack usage of a stack
+ *
+ * @pre         Does not work if the thread was created with the flag
+ *              `THREAD_CREATE_NO_STACKTEST`.
+ *
+ * @param[in] thread    The thread to measure the stack of
+ *
+ * @return              the amount of unused space of the thread's stack
+ */
+static inline uintptr_t thread_measure_stack_free(const thread_t *thread)
+{
+    /* explicitly casting void pointers is bad code style, but needed for C++
+     * compatibility */
+    return measure_stack_free_internal((const char *)thread_get_stackstart(thread),
+                                       thread_get_stacksize(thread));
+}
 
 #ifdef __cplusplus
 }

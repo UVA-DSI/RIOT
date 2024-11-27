@@ -20,6 +20,7 @@
 #define PERIPH_CONF_H
 
 #include "periph_cpu.h"
+#include "kernel_defines.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,7 +68,6 @@ extern "C" {
 #define PWM_CH2_PIN       (4)
 #define PWM_FUNC          (1)
 /** @} */
-
 
 /**
  * @name    UART configuration

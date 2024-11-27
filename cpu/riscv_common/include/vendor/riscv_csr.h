@@ -22,6 +22,10 @@
 #ifndef RISCV_CSR_H
 #define RISCV_CSR_H
 
+/* Some things missing from the official encoding.h */
+#define MCAUSE_INT         0x80000000
+#define MCAUSE_CAUSE       0x7FFFFFFF
+
 #define MSTATUS_UIE         0x00000001
 #define MSTATUS_SIE         0x00000002
 #define MSTATUS_HIE         0x00000004
@@ -166,6 +170,9 @@
 #define PTE_PPN_SHIFT 10
 
 #define PTE_TABLE(PTE) (((PTE) & (PTE_V | PTE_R | PTE_W | PTE_X)) == PTE_V)
+
+#define CSR_PMPCFG0     0x3a0 // PMP configuration base register
+#define CSR_PMPADDR0    0x3b0 // PMP address base register
 
 #ifdef __riscv
 

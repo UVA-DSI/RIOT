@@ -4,13 +4,12 @@
 # General Public License v2.1. See the file LICENSE in the top level
 # directory for more details.
 #
-menuconfig KCONFIG_USEMODULE_MRF24J40
-    bool "Configure MRF24J40 driver"
-    depends on USEMODULE_MRF24J40
-    help
-        Configure the MRF24J40 driver using Kconfig.
 
-if KCONFIG_USEMODULE_MRF24J40
+menu "MRF24J40 driver"
+    depends on USEMODULE_MRF24J40
+
+config MRF24J40_OQPSK
+    bool "OQPSK support"
 
 config MRF24J40_USE_EXT_PA_LNA
     bool "Enable external PA/LNA control"
@@ -27,4 +26,4 @@ config MRF24J40_TEST_SPI_CONNECTION
         device is connected. Enable this if you want the boot not to hang if the
         device is not connected / there are SPI errors.
 
-endif # KCONFIG_USEMODULE_MRF24J40
+endmenu # MRF24J40 driver

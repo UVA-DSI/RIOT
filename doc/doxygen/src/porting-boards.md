@@ -15,6 +15,9 @@ to `RIOT`, the different files as well as their functionality.
 @note We assume here that your `CPU` and `CPU_MODEL` is already supported
 in `RIOT` so no peripheral or cpu implementation is needed.
 
+# Porting flowchart                                         {#porting-flowchart}
+@dotfile porting-boards.dot
+
 # General structure                                         {#general-structure}
 
 Like @ref creating-an-application "applications" or @ref creating-modules
@@ -58,18 +61,14 @@ configurations. e.g:
 somewhere else then they must be added to the include path. In
 `Makefile.include`: `INCLUDES += -I<some>/<directory>/<path>`
 
-Board initialization functions are defined in `board.c`. This file must at
-least define a `board_init()` function that is called at startup. This
-function initializes the `CPU` by calling`cpu_init()` among others. It is run
-before the scheduler is started, so it must not block (e.g. by performing I2C
-operations).
+Board initialization functions are defined in `board.c`.
+This file can define a `board_init()` function that is called at startup.
+It is run before the scheduler is started, so it must not block (e.g. by
+performing I2C operations).
 
 ```c
 void board_init(void)
 {
-    /* initialize the CPU core */
-    cpu_init();
-
     /* initialize GPIO or others... */
     ...
 }
@@ -177,6 +176,45 @@ PORT_DARWIN ?= $(firstword $(sort $(wildcard /dev/tty.usbserial*)))
 PROGRAMMER ?= openocd
 ```
 
+## Timer Configurations                            {#board-timer-configurations}
+
+When using the high level timer `ztimer` there is an overhead in calling
+the @ref ztimer_sleep and @ref ztimer_set functions. This offset can be
+compensated for. It can be measured by running `tests/sys/ztimer_overhead`
+on your board, i.e:
+
+```shell
+$ BOARD=my-new-board make -C tests/sys/ztimer_overhead flash term
+main(): This is RIOT!
+ZTIMER_USEC auto_adjust params:
+    ZTIMER_USEC->adjust_set = xx
+    ZTIMER_USEC->adjust_sleep = xx
+ZTIMER_USEC auto_adjust params cleared
+zitmer_overhead_set...
+min=6 max=7 avg_diff=6
+zitmer_overhead_sleep...
+min=21 max=21 avg_diff=21
+ZTIMER_USEC adjust params for my-new-board:
+    CONFIG_ZTIMER_USEC_ADJUST_SET    6
+    CONFIG_ZTIMER_USEC_ADJUST_SLEEP  21
+```
+
+The last two lines can be added as defines to the new board `board.h`:
+
+```c
+/**
+ * @name    ztimer configuration values
+ * @{
+ */
+#define CONFIG_ZTIMER_USEC_ADJUST_SET     6
+#define CONFIG_ZTIMER_USEC_ADJUST_SLEEP   21
+/** @} */
+```
+
+Alternatively, the pseudomodule @ref pseudomodule_ztimer_auto_adjust can be used
+in an application to enable automatic timer offset compensation at board startup.
+This however incurs overhead both in the text segment and at bootup time.
+
 ## doc.txt                                                          {#board-doc}
 
 Although not explicitly needed, if upstreamed and as a general good
@@ -187,7 +225,7 @@ The documentation must be under the proper doxygen group, you can compile the
 documentation by calling `make doc` and then open the generated html file on
 any browser.
 
-@code
+```
 /**
 @defgroup    boards_foo FooBoard
 @ingroup     boards
@@ -207,7 +245,7 @@ any browser.
   ...
 
 */
-@endcode
+```
 
 # Helper tools
 
@@ -245,29 +283,28 @@ To avoid code duplication, common code across boards has been grouped in
 In the case of source files this means some functions like `board_init` can be
 already defined in the common code. Unless having specific configurations or
 initialization you might not need a `board.c` or `board.h`. Another common use
-case is common peripheral configurations:
+case is common peripheral configurations, for example in the `cfg_timer_tim5.h`:
 
-@code
--\#include "cfg_timer_tim5.h"
-+/**
-+ * @name   Timer configuration
-+ * @{
-+ */
-+static const timer_conf_t timer_config[] = {
-+    {
-+        .dev      = TIM5,
-+        .max      = 0xffffffff,
-+        .rcc_mask = RCC_APB1ENR_TIM5EN,
-+        .bus      = APB1,
-+        .irqn     = TIM5_IRQn
-+    }
-+};
-+
-+#define TIMER_0_ISR         isr_tim5
-+
-+#define TIMER_NUMOF         ARRAY_SIZE(timer_config)
-+/** @} */
-@endcode
+```c
+/**
+ * @name   Timer configuration
+ * @{
+ */
+static const timer_conf_t timer_config[] = {
+    {
+        .dev      = TIM5,
+        .max      = 0xffffffff,
+        .rcc_mask = RCC_APB1ENR_TIM5EN,
+        .bus      = APB1,
+        .irqn     = TIM5_IRQn
+    }
+};
+
+#define TIMER_0_ISR         isr_tim5
+
+#define TIMER_NUMOF         ARRAY_SIZE(timer_config)
+/** @} */
+```
 
 If you want to use common makefiles, include them at the end of the specific
 `Makefile`, e.g. for a `Makefile.features`:
@@ -346,7 +383,7 @@ In this case some special considerations must be taken with the makefiles:
   `include $(RIOTBOARD)/foo-parent/Makefile.*include*`
 
 An example can be found in
-[`tests/external_board_native`](https://github.com/RIOT-OS/RIOT/tree/master/tests/external_board_native)
+[`tests/build_system/external_board_native`](https://github.com/RIOT-OS/RIOT/tree/master/tests/build_system/external_board_native)
 
 # Tools                                                          {#boards-tools}
 
@@ -359,3 +396,13 @@ Some scripts and tools available to ease `BOARD` porting and testing:
 
   - Run `dist/tools/compile_and_test_for_board/compile_and_test_for_board.py . <board> --with-test-only`
     to run all automated tests on the new board.
+
+# Further reference                                         {#further-reference}
+
+- [In her blog][martines-blog], Martine Lenders documented her approach of
+  porting the @ref boards_feather-nrf52840 in February 2020.
+- [Over at HackMD][hackmd-slstk3400a], Akshai M documented his approach of
+  porting the @ref boards_slstk3400a in July 2020.
+
+[martines-blog]: https://blog.martine-lenders.eu/riot-board-en.html
+[hackmd-slstk3400a]: https://hackmd.io/njFHwQ33SNS3sQKAkLkNtQ

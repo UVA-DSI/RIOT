@@ -21,6 +21,7 @@
 #include "esp_attr.h"
 #include "esp_common.h"
 #include "sdk/sdk.h"
+#include "timex.h"
 
 #ifdef MODULE_ESP_IDF_HEAP
 #include "esp_heap_caps.h"
@@ -54,11 +55,6 @@ void heap_stats(void)
  * @name Other system functions
  */
 
-int _rename_r(struct _reent *r, const char *from, const char *to)
-{
-    return 0;
-}
-
 uint32_t system_get_time(void)
 {
     return phy_get_mactime();
@@ -66,7 +62,7 @@ uint32_t system_get_time(void)
 
 uint32_t system_get_time_ms(void)
 {
-    return system_get_time() / USEC_PER_MSEC;
+    return system_get_time() / US_PER_MS;
 }
 
 void IRAM_ATTR syscalls_init_arch(void)

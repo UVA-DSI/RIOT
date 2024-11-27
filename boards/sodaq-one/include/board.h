@@ -21,6 +21,7 @@
 
 #include "cpu.h"
 #include "board_common.h"
+#include "periph/gpio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +61,7 @@ extern "C" {
 
 /**
  * @name    User button
+ * @{
  */
 #define BTN0_PIN            GPIO_PIN(PA, 16)
 #define BTN0_MODE           GPIO_IN
@@ -67,6 +69,7 @@ extern "C" {
 
 /**
  * @name    GPS Time Pulse
+ * @{
  */
 #define GPS_TIMEPULSE_PIN   GPIO_PIN(PA, 14)
 #define GPS_TIMEPULSE_MODE  GPIO_IN

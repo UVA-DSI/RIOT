@@ -25,7 +25,7 @@
 #include "net/gnrc/dhcpv6/client/simple_pd.h"
 
 #if IS_USED(MODULE_AUTO_INIT_DHCPV6_CLIENT)
-#error "Module `gnrc_dhcpv6_client_6lbr` is mutually exclusive to \
+#error "Module `gnrc_dhcpv6_client_simple_pd` is mutually exclusive to \
 `auto_init_dhcpv6_client`"
 #endif
 
@@ -48,6 +48,12 @@ static gnrc_netif_t *_find_upstream_netif(void)
     if (CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM) {
         return gnrc_netif_get_by_pid(CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM);
     }
+
+    if (CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_TYPE != NETDEV_ANY) {
+        return gnrc_netif_get_by_type(CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_TYPE,
+                                      CONFIG_GNRC_DHCPV6_CLIENT_6LBR_UPSTREAM_IDX);
+    }
+
     while ((netif = gnrc_netif_iter(netif))) {
         if (!gnrc_netif_is_6lo(netif)) {
             LOG_WARNING("DHCPv6: Selecting interface %d as upstream\n",
@@ -84,15 +90,6 @@ static void _configure_upstream_netif(gnrc_netif_t *upstream_netif)
         addr.u8[15] = 2;
         gnrc_netif_ipv6_addr_add(upstream_netif, &addr, 64, 0);
     }
-
-    /* Disable router advertisements on upstream interface. With this, the border
-     * router
-     * 1. Does not confuse the upstream router to add the border router to its
-     *    default router list and
-     * 2. Solicits upstream Router Advertisements quicker to auto-configure its
-     *    upstream global address.
-     */
-    gnrc_ipv6_nib_change_rtr_adv_iface(upstream_netif, false);
 }
 
 /**
@@ -102,6 +99,16 @@ static void _configure_dhcpv6_client(void)
 {
     gnrc_netif_t *netif = NULL;
     gnrc_netif_t *upstream = _find_upstream_netif();
+
+    if (upstream == NULL) {
+        LOG_ERROR("DHCPv6: No upstream interface found!\n");
+        return;
+    }
+
+    if (IS_ACTIVE(MODULE_DHCPV6_CLIENT_IA_NA)) {
+        upstream->ipv6.aac_mode |= GNRC_NETIF_AAC_DHCP;
+    }
+
     while ((netif = gnrc_netif_iter(netif))) {
         if (IS_USED(MODULE_GNRC_DHCPV6_CLIENT_6LBR)
             && !gnrc_netif_is_6lo(netif)) {
@@ -116,7 +123,7 @@ static void _configure_dhcpv6_client(void)
 /**
  * @brief   The DHCPv6 client thread
  */
-static void *_dhcpv6_cl_6lbr_thread(void *args)
+static void *_dhcpv6_cl_simple_pd_thread(void *args)
 {
     event_queue_t event_queue;
     gnrc_netif_t *upstream_netif = _find_upstream_netif();
@@ -133,6 +140,8 @@ static void *_dhcpv6_cl_6lbr_thread(void *args)
     dhcpv6_client_init(&event_queue, upstream_netif->pid);
     /* configure client to request prefix delegation for WPAN interfaces */
     _configure_dhcpv6_client();
+    /* set client configuration mode to stateful */
+    dhcpv6_client_set_conf_mode(DHCPV6_CLIENT_CONF_MODE_STATEFUL);
     /* start DHCPv6 client */
     dhcpv6_client_start();
     /* start event loop of DHCPv6 client */
@@ -145,8 +154,8 @@ void gnrc_dhcpv6_client_simple_pd_init(void)
     /* start DHCPv6 client thread to request prefix for WPAN */
     thread_create(_stack, DHCPV6_CLIENT_STACK_SIZE,
                   DHCPV6_CLIENT_PRIORITY,
-                  THREAD_CREATE_STACKTEST,
-                  _dhcpv6_cl_6lbr_thread, NULL, "dhcpv6-client");
+                  0,
+                  _dhcpv6_cl_simple_pd_thread, NULL, "dhcpv6-client");
 }
 
 /** @} */

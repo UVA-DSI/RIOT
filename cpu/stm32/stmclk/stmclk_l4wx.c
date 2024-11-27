@@ -330,13 +330,16 @@
 /* Configure 48MHz clock source */
 #define CLOCK_PLLQ                  ((CLOCK_PLL_SRC / CONFIG_CLOCK_PLL_M) * CONFIG_CLOCK_PLL_N) / CONFIG_CLOCK_PLL_Q
 
-#if CLOCK_PLLQ == MHZ(48) && !defined(CPU_FAM_STM32WL)
+#if defined(CPU_FAM_STM32WB)
+#define CLOCK48MHZ_USE_HSI48        1
+#elif CLOCK_PLLQ == MHZ(48) && !defined(CPU_FAM_STM32WL)
 #define CLOCK48MHZ_USE_PLLQ         1
 #elif CONFIG_CLOCK_MSI == MHZ(48) && !defined(CPU_FAM_STM32WL)
 #define CLOCK48MHZ_USE_MSI          1
 #else
 #define CLOCK48MHZ_USE_PLLQ         0
 #define CLOCK48MHZ_USE_MSI          0
+#define CLOCK48MHZ_USE_HSI48        0
 #endif
 
 #if IS_ACTIVE(CLOCK48MHZ_USE_PLLQ)
@@ -347,9 +350,11 @@
 #define CLOCK48MHZ_SELECT           (0)
 #endif
 
-/* Only periph_hwrng requires 48MHz for the moment */
-#if IS_USED(MODULE_PERIPH_HWRNG)
-#if !IS_ACTIVE(CLOCK48MHZ_USE_PLLQ) && !IS_ACTIVE(CLOCK48MHZ_USE_MSI)
+/* periph_hwrng, periph_usbdev and periph_sdmmc require a 48MHz clock source */
+#if IS_USED(MODULE_PERIPH_HWRNG) || IS_USED(MODULE_PERIPH_USBDEV_CLK) || \
+    IS_USED(MODULE_PERIPH_SDMMC_CLK)
+#if !IS_ACTIVE(CLOCK48MHZ_USE_PLLQ) && !IS_ACTIVE(CLOCK48MHZ_USE_MSI) && \
+    !IS_ACTIVE(CLOCK48MHZ_USE_HSI48)
 #error "No 48MHz clock source available, HWRNG cannot work"
 #endif
 #define CLOCK_ENABLE_48MHZ          1
@@ -397,6 +402,15 @@
 #define CLOCK_ENABLE_HSI            1
 #else
 #define CLOCK_ENABLE_HSI            0
+#endif
+
+/* Check if HSI48 is required:
+  - When used as 48MHz source
+*/
+#if IS_ACTIVE(CLOCK48MHZ_USE_HSI48)
+#define CLOCK_ENABLE_HSI48          1
+#else
+#define CLOCK_ENABLE_HSI48          0
 #endif
 
 /* Check whether LSE must be enabled */
@@ -487,17 +501,18 @@ void stmclk_init_sysclk(void)
              ~100 kHz and the MSI clock to be based on MSISRANGE in RCC_CSR
              (instead of MSIRANGE in the RCC_CR) */
     RCC->CR = (RCC_CR_HSION);
-
+    /* Use VDDTCXO regulator, required by the radio and HSE */
+    if (IS_ACTIVE(CLOCK_ENABLE_HSE) || IS_USED(MODULE_SX126X_STM32WL)) {
+#ifdef RCC_CR_HSEBYPPWR
+        RCC->CR |= (RCC_CR_HSEBYPPWR);
+#endif
+    }
     /* Enable the HSE clock only when it's provided by the board and required:
         - Use HSE as system clock
         - Use HSE as PLL input clock
     */
     if (IS_ACTIVE(CLOCK_ENABLE_HSE)) {
 
-    /* Use VDDTCXO regulator */
-#if defined(CPU_FAM_STM32WL)
-        RCC->CR |= (RCC_CR_HSEBYPPWR);
-#endif
         RCC->CR |= (RCC_CR_HSEON);
         while (!(RCC->CR & RCC_CR_HSERDY)) {}
     }
@@ -541,6 +556,13 @@ void stmclk_init_sysclk(void)
     /* Disable the current SYSCLK source (HSI), only if not used */
     if (!IS_ACTIVE(CLOCK_ENABLE_HSI)) {
         RCC->CFGR &= ~RCC_CFGR_SW;
+    }
+
+    if (IS_ACTIVE(CLOCK_ENABLE_HSI48)) {
+#if defined(RCC_CRRCR_HSI48ON)
+        RCC->CRRCR |= RCC_CRRCR_HSI48ON;
+        while (!(RCC->CRRCR & RCC_CRRCR_HSI48RDY)) {}
+#endif
     }
 
     /* Configure the system clock (SYSCLK) */
@@ -641,6 +663,11 @@ void stmclk_init_sysclk(void)
         gpio_init(GPIO_PIN(PORT_A, 8), GPIO_OUT);
         gpio_init_af(GPIO_PIN(PORT_A, 8), GPIO_AF0);
     }
+
+#if IS_USED(MODULE_PERIPH_USBDEV_CLK) && defined(RCC_APB1RSTR1_USBRST)
+    RCC->APB1RSTR1 |= RCC_APB1RSTR1_USBRST;
+    RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_USBRST;
+#endif
 
     irq_restore(is);
 }

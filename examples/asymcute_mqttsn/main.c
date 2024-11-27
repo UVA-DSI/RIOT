@@ -44,7 +44,7 @@
 #define TOPIC_BUF_NUMOF     (8U + SUB_CTX_NUMOF)
 #endif
 
-/* needed for the `ping6` shell command */
+/* needed for the `ping` shell command */
 #define MAIN_QUEUE_SIZE     (8)
 static msg_t _main_msg_queue[MAIN_QUEUE_SIZE];
 
@@ -246,7 +246,7 @@ static int _cmd_connect(int argc, char **argv)
 
     /* get sock ep */
     sock_udp_ep_t ep;
-    if (sock_udp_str2ep(&ep, argv[2]) != 0) {
+    if (sock_udp_name2ep(&ep, argv[2]) != 0) {
         puts("error: unable to parse gateway address");
         return 1;
     }

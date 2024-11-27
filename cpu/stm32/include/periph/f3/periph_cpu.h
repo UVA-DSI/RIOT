@@ -50,6 +50,12 @@ extern "C" {
 #define STM32_BOOTLOADER_ADDR   (0x1FFFD800)
 
 /**
+ * @brief   Readout Protection (RDP) option bytes
+ */
+#define STM32_OPTION_BYTES   ((uint32_t*) 0x1FFFF800)
+#define GET_RDP(x) (x & 0xFF)
+
+/**
  * @brief   Override ADC resolution values
  * @{
  */
@@ -63,6 +69,15 @@ typedef enum {
     ADC_RES_16BIT = (0x2)             /**< not applicable */
 } adc_res_t;
 /** @} */
+
+/**
+ * @name   Constants for internal VBAT ADC line
+ * @{
+ */
+#define VBAT_ADC_RES        ADC_RES_12BIT
+#define VBAT_ADC_MAX        4095
+/** @} */
+
 #endif /* ndef DOXYGEN */
 
 #ifdef __cplusplus

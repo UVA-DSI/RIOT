@@ -21,6 +21,7 @@
 
 #include "cpu.h"
 #include "board_common.h"
+#include "periph/gpio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +73,7 @@ extern "C" {
 
 /**
  * @name    User button
+ * @{
  */
 #define BTN0_PIN            GPIO_PIN(PB, 8)
 #define BTN0_MODE           GPIO_IN
@@ -144,6 +146,8 @@ extern "C" {
 #define SARA_R4XX_PWR_ON_ON     (SARA_R4XX_PWR_ON_PORT.OUTSET.reg = SARA_R4XX_PWR_ON_MASK)
 #define SARA_R4XX_PWR_ON_OFF    (SARA_R4XX_PWR_ON_PORT.OUTCLR.reg = SARA_R4XX_PWR_ON_MASK)
 /** @} */
+
+#define SARA_STATUS_PIN     GPIO_PIN(PA, 28) /**< This is the V_INT of the board */
 
 /**
  * @name    INT_MAG

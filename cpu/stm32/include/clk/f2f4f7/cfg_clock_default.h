@@ -19,6 +19,9 @@
 #ifndef CLK_F2F4F7_CFG_CLOCK_DEFAULT_H
 #define CLK_F2F4F7_CFG_CLOCK_DEFAULT_H
 
+#include "cfg_clock_common_fx_gx_mp1_c0.h"
+#include "kernel_defines.h"
+
 #if defined(CPU_FAM_STM32F2)
 #include "f2f4f7/cfg_clock_default_120.h"
 #elif defined(CPU_FAM_STM32F4)
@@ -51,19 +54,19 @@
  * @{
  */
 #if IS_ACTIVE(CONFIG_BOARD_HAS_HSE)
-#define CLOCK_PLL_SRC                   (CLOCK_HSE)
-#else /* CLOCK_HSI */
-#define CLOCK_PLL_SRC                   (CLOCK_HSI)
+#define CLOCK_PLL_SRC                   (CONFIG_CLOCK_HSE)
+#else /* CONFIG_CLOCK_HSI */
+#define CLOCK_PLL_SRC                   (CONFIG_CLOCK_HSI)
 #endif
 
 #if IS_ACTIVE(CONFIG_USE_CLOCK_HSI)
-#define CLOCK_CORECLOCK                 (CLOCK_HSI)
+#define CLOCK_CORECLOCK                 (CONFIG_CLOCK_HSI)
 
 #elif IS_ACTIVE(CONFIG_USE_CLOCK_HSE)
 #if !IS_ACTIVE(CONFIG_BOARD_HAS_HSE)
 #error "The board doesn't provide an HSE oscillator"
 #endif
-#define CLOCK_CORECLOCK                 (CLOCK_HSE)
+#define CLOCK_CORECLOCK                 (CONFIG_CLOCK_HSE)
 
 #elif IS_ACTIVE(CONFIG_USE_CLOCK_PLL)
 #define CLOCK_CORECLOCK                 (((CLOCK_PLL_SRC / CONFIG_CLOCK_PLL_M) * CONFIG_CLOCK_PLL_N) / CONFIG_CLOCK_PLL_P)

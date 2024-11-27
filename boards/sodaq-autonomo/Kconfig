@@ -12,7 +12,5 @@ config BOARD_SODAQ_AUTONOMO
     default y
     select BOARD_COMMON_SODAQ
     select CPU_MODEL_SAMD21J18A
-    select HAS_PERIPH_PWM
-    select HAS_ARDUINO_PWM
 
 source "$(RIOTBOARD)/common/sodaq/Kconfig"

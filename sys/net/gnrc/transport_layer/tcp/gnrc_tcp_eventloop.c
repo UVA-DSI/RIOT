@@ -330,6 +330,16 @@ static void *_eventloop(__attribute__((unused)) void *arg)
                               FSM_EVENT_TIMEOUT_TIMEWAIT, NULL, NULL, 0);
                 break;
 
+           /* A connection opening attempt from a TCB in listening mode failed.
+            * Clear retransmission and re-open for next attempt */
+            case MSG_TYPE_CONNECTION_TIMEOUT:
+                TCP_DEBUG_INFO("Received MSG_TYPE_CONNECTION_TIMEOUT.");
+                _gnrc_tcp_fsm((gnrc_tcp_tcb_t *)msg.content.ptr,
+                              FSM_EVENT_CLEAR_RETRANSMIT, NULL, NULL, 0);
+                _gnrc_tcp_fsm((gnrc_tcp_tcb_t *)msg.content.ptr,
+                              FSM_EVENT_CALL_OPEN, NULL, NULL, 0);
+                break;
+
             default:
                 TCP_DEBUG_ERROR("Received unexpected message.");
         }
@@ -372,7 +382,7 @@ int _gnrc_tcp_eventloop_init(void)
     evtimer_init_msg(&_tcp_msg_timer);
 
     kernel_pid_t pid = thread_create(_stack, sizeof(_stack), TCP_EVENTLOOP_PRIO,
-                                     THREAD_CREATE_STACKTEST, _eventloop, NULL,
+                                     0, _eventloop, NULL,
                                      "gnrc_tcp");
     TCP_DEBUG_LEAVE;
     return pid;

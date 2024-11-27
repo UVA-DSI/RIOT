@@ -25,7 +25,9 @@
 #endif
 
 /* The HSE provides a 16MHz clock */
-#define CLOCK_HSE               MHZ(16)
+#ifndef CONFIG_CLOCK_HSE
+#define CONFIG_CLOCK_HSE               MHZ(16)
+#endif
 
 #include "periph_cpu.h"
 #include "clk_conf.h"
@@ -105,9 +107,11 @@ static const pwm_conf_t pwm_config[] = {
  */
 static const adc_conf_t adc_config[] = {
     {GPIO_PIN(PORT_B, 0), 0, 8},
-    {GPIO_PIN(PORT_B, 1), 0, 9}
+    {GPIO_PIN(PORT_B, 1), 0, 9},
+    {GPIO_UNDEF, 0, 18}, /* VBAT */
 };
 
+#define VBAT_ADC            ADC_LINE(2) /**< VBAT ADC line */
 #define ADC_NUMOF           ARRAY_SIZE(adc_config)
 /** @} */
 

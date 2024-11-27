@@ -56,7 +56,10 @@ void _auto_configure_addr(gnrc_netif_t *netif, const ipv6_addr_t *pfx,
 #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_6LN)
     bool new_address = false;
 #endif  /* CONFIG_GNRC_IPV6_NIB_6LN */
-    gnrc_netif_ipv6_get_iid(netif, (eui64_t *)&addr.u64[1]);
+    if (gnrc_netif_ipv6_get_iid(netif, (eui64_t *)&addr.u64[1]) < 0) {
+        DEBUG("nib: Can't get IID on interface %u\n", netif->pid);
+        return;
+    }
     ipv6_addr_init_prefix(&addr, pfx, pfx_len);
     if ((idx = gnrc_netif_ipv6_addr_idx(netif, &addr)) < 0) {
         if ((idx = gnrc_netif_ipv6_addr_add_internal(netif, &addr, pfx_len,
@@ -162,10 +165,15 @@ void _remove_tentative_addr(gnrc_netif_t *netif, const ipv6_addr_t *addr)
         /* Cannot use target address as personal address and can
          * not change hardware address to retry SLAAC => use purely
          * DHCPv6 instead */
-        /* TODO: implement IA_NA for DHCPv6 */
-        /* then => tgt_netif->aac_mode |= GNRC_NETIF_AAC_DHCP; */
-        DEBUG("nib: would set interface %i to DHCPv6, "
-              "but is not implemented yet", netif->pid);
+        if (IS_USED(MODULE_DHCPV6_CLIENT_IA_NA)) {
+            netif->ipv6.aac_mode &= ~GNRC_NETIF_AAC_AUTO;
+            netif->ipv6.aac_mode |= GNRC_NETIF_AAC_DHCP;
+            dhcpv6_client_req_ia_na(netif->pid);
+        }
+        else {
+            DEBUG("nib: would set interface %i to DHCPv6, "
+                  "but DHCPv6 is not provided", netif->pid);
+        }
     }
 }
 

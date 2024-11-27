@@ -9,7 +9,7 @@ RIOTBASE ?= $(CURDIR)/../..
 
 # Include packages that pull up and auto-init the link layer.
 # NOTE: 6LoWPAN will be included if IEEE802.15.4 devices are present
-USEMODULE += gnrc_netdev_default
+USEMODULE += netdev_default
 USEMODULE += auto_init_gnrc_netif
 # Specify the mandatory networking modules for IPv6 and UDP
 USEMODULE += gnrc_ipv6_default
@@ -18,15 +18,15 @@ USEMODULE += sock_udp
 USEMODULE += gnrc_icmpv6_echo
 
 USEMODULE += nanocoap_sock
+USEMODULE += nanocoap_resources
+
+USEMODULE += xtimer
 
 # include this for nicely formatting the returned internal value
 USEMODULE += fmt
 
 # include sha256 (used by example blockwise handler)
 USEMODULE += hashes
-
-# include this for printing IP addresses
-USEMODULE += shell_commands
 
 # Comment this out to enable code in RIOT that does safety checking
 # which is not needed in a production environment but helps in the
@@ -41,6 +41,26 @@ ifneq (,$(filter $(BOARD),$(LOW_MEMORY_BOARDS)))
   $(info Using low-memory configuration for microcoap_server.)
   ## low-memory tuning values
   USEMODULE += prng_minstd
+endif
+
+# Enable fileserver for boards with plenty of memory
+HIGH_MEMORY_BOARDS := native native64 same54-xpro mcb2388
+
+ifneq (,$(filter $(BOARD),$(HIGH_MEMORY_BOARDS)))
+  # enable separate response
+  USEMODULE += nanocoap_server_separate
+  USEMODULE += event_callback
+  USEMODULE += event_thread
+  USEMODULE += event_timeout_ztimer
+
+  # enable fileserver
+  USEMODULE += nanocoap_fileserver
+  USEMODULE += vfs_default
+
+  # always enable auto-format for native
+  ifneq (,$(filter native native64,$(BOARD)))
+    USEMODULE += vfs_auto_format
+  endif
 endif
 
 # Change this to 0 show compiler invocation lines by default:

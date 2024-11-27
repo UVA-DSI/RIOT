@@ -19,11 +19,10 @@
  * @}
  */
 
-#include <avr/sleep.h>
-
-#include "periph_conf.h"
-#include "periph/pm.h"
 #include "cpu_pm.h"
+#include "irq.h"
+#include "periph/pm.h"
+#include "periph_conf.h"
 
 #define ENABLE_DEBUG 0
 #include "debug.h"
@@ -72,44 +71,6 @@ void pm_reboot(void)
     while (1) {}
 }
 
-/*
- * DEBUG may affect this routine.
- *
- * --- Do NOT add DEBUG macro here ---
- *
- */
-void pm_set(unsigned mode)
-{
-    unsigned irq_state = irq_disable();
-
-    if (avr8_is_uart_tx_pending() && mode < 4) {
-        irq_restore(irq_state);
-        return;
-    }
-
-    switch (mode) {
-    case 0:
-        set_sleep_mode(SLEEP_SMODE_PDOWN_gc);
-        break;
-    case 1:
-        set_sleep_mode(SLEEP_SMODE_PSAVE_gc);
-        break;
-    case 2:
-        set_sleep_mode(SLEEP_SMODE_STDBY_gc);
-        break;
-    case 3:
-        set_sleep_mode(SLEEP_SMODE_ESTDBY_gc);
-        break;
-    default:
-        set_sleep_mode(SLEEP_SMODE_IDLE_gc);
-    }
-    sleep_enable();
-    sei();
-    sleep_cpu();
-    sleep_disable();
-    irq_restore(irq_state);
-}
-
 void pm_periph_enable(pwr_reduction_t pwr)
 {
     uint8_t mask = _device_mask(pwr);
@@ -135,4 +96,14 @@ void pm_periph_power_off(void)
     for (i = 0; i <= 7; i++) {
         reg[i] = 0xff;
     }
+
+    /* EBI Must be always enabled when configured */
+#if defined (__AVR_ATxmega64A1__)   || \
+    defined (__AVR_ATxmega64A1U__)  || \
+    defined (__AVR_ATxmega128A1__)  || \
+    defined (__AVR_ATxmega128A1U__)
+    if (ebi_config.addr_bits > 0) {
+        reg[0] &= ~PR_EBI_bm;
+    }
+#endif
 }

@@ -54,42 +54,54 @@
    from PLLI2S or PLLSAI */
 
 /* Determine if PLL is required, even if not used as SYSCLK
-   This is the case when USB is used in application and PLLQ is configured to
-   output 48MHz */
-#if IS_USED(MODULE_PERIPH_USBDEV) && (CLOCK_PLLQ == MHZ(48))
+   This is the case when USB/SDIO/SDMMC is used in application and PLLQ is
+   configured to output 48MHz */
+#if (IS_USED(MODULE_PERIPH_USBDEV_CLK) || IS_USED(MODULE_PERIPH_SDMMC_CLK)) && \
+    (CLOCK_PLLQ == MHZ(48))
 #define CLOCK_REQUIRE_PLLQ          1
 #else
 #define CLOCK_REQUIRE_PLLQ          0
 #endif
 
-/* PLLI2S can only be used for USB with F412/F413/F423 lines
+/* PLLI2S can only be used for USB/SDIO/SDMMC with F412/F413/F423 lines
    PLLI2S is only enabled if no suitable 48MHz clock source can be generated with PLLQ */
 #if (defined(CPU_LINE_STM32F412Cx) || defined(CPU_LINE_STM32F412Rx) || \
      defined(CPU_LINE_STM32F412Vx) || defined(CPU_LINE_STM32F412Zx) || \
      defined(CPU_LINE_STM32F413xx) || defined(CPU_LINE_STM32F423xx)) && \
-    IS_USED(MODULE_PERIPH_USBDEV) && !IS_ACTIVE(CLOCK_REQUIRE_PLLQ)
+    (IS_USED(MODULE_PERIPH_USBDEV_CLK) || IS_USED(MODULE_PERIPH_SDMMC_CLK)) && \
+    !IS_ACTIVE(CLOCK_REQUIRE_PLLQ)
 #define CLOCK_REQUIRE_PLLI2SR       1
 #else
-/* Disable PLLI2S if USB is not required or is required but PLLQ cannot generate 48MHz clock */
+/* Disable PLLI2S if USB/SDIO/SDMMC is not required or is required but PLLQ
+ * cannot generate 48MHz clock */
 #define CLOCK_REQUIRE_PLLI2SR       0
 #endif
 
-/* PLLSAI can only be used for USB with F446/469/479 lines and F7
+/* PLLSAI can only be used for USB/SDIO/SDMMC with F446/469/479 lines and F7
    PLLSAI is only enabled if no suitable 48MHz clock source can be generated with PLLQ */
 #if (defined(CPU_LINE_STM32F446xx) || defined(CPU_LINE_STM32F469xx) || \
      defined(CPU_LINE_STM32F479xx) || defined(CPU_FAM_STM32F7)) && \
-    IS_USED(MODULE_PERIPH_USBDEV) && !IS_ACTIVE(CLOCK_REQUIRE_PLLQ)
+    (IS_USED(MODULE_PERIPH_USBDEV_CLK) || IS_USED(MODULE_PERIPH_SDMMC_CLK)) && \
+    !IS_ACTIVE(CLOCK_REQUIRE_PLLQ)
 #define CLOCK_REQUIRE_PLLSAIP       1
 #else
-/* Disable PLLSAI if USB is not required or is required but PLLQ cannot generate 48MHz clock */
+/* Disable PLLSAI if USB/SDIO/SDMMC is not required or is required but PLLQ
+ * cannot generate 48MHz clock */
 #define CLOCK_REQUIRE_PLLSAIP       0
 #endif
 
-#if IS_USED(MODULE_PERIPH_USBDEV) && \
+#if (IS_USED(MODULE_PERIPH_USBDEV_CLK) || IS_USED(MODULE_PERIPH_SDMMC_CLK)) && \
     !(IS_ACTIVE(CLOCK_REQUIRE_PLLQ) || \
       IS_ACTIVE(CLOCK_REQUIRE_PLLI2SR) || \
       IS_ACTIVE(CLOCK_REQUIRE_PLLSAIP))
 #error No suitable 48MHz found, USB will not work
+#endif
+
+/* PLLSAI is enabled when LTDC is used */
+#if IS_USED(MODULE_PERIPH_LTDC)
+#define CLOCK_REQUIRE_PLLSAIR       1
+#else
+#define CLOCK_REQUIRE_PLLSAIR       0
 #endif
 
 /* PLLI2S configuration: the following parameters configure a 48MHz I2S clock
@@ -116,8 +128,8 @@
 #define CONFIG_CLOCK_PLLI2S_P       (8)     /* SPDIF-Rx clock, 48MHz by default */
 #endif
 #ifndef CONFIG_CLOCK_PLLI2S_Q
-#define CONFIG_CLOCK_PLLI2S_Q       (8)     /* Alternative 48MHz clock (USB) and/or MCO2 PLLI2S */
-#endif
+#define CONFIG_CLOCK_PLLI2S_Q       (8)     /* Alternative 48MHz clock (USB/SDIO/SDMMC) */
+#endif                                      /* and/or MCO2 PLLI2S */
 #ifndef CONFIG_CLOCK_PLLI2S_R
 #define CONFIG_CLOCK_PLLI2S_R       (8)     /* I2S clock, 48MHz by default */
 #endif
@@ -169,13 +181,13 @@
 #endif
 #endif
 #ifndef CONFIG_CLOCK_PLLSAI_P
-#define CONFIG_CLOCK_PLLSAI_P       (8)     /* Alternative 48MHz clock (USB) */
+#define CONFIG_CLOCK_PLLSAI_P       (8)     /* Alternative 48MHz clock (USB/SDIO/SDMMC) */
 #endif
 #ifndef CONFIG_CLOCK_PLLSAI_Q
 #define CONFIG_CLOCK_PLLSAI_Q       (8)     /* SAI clock, 48MHz by default */
 #endif
 #ifndef CONFIG_CLOCK_PLLSAI_R
-#define CONFIG_CLOCK_PLLSAI_R       (8)     /* LCD clock, 48MHz by default */
+#define CONFIG_CLOCK_PLLSAI_R       (4)     /* LCD clock, 48MHz by default */
 #endif
 
 #if defined(RCC_PLLSAICFGR_PLLSAIM_Pos)
@@ -455,7 +467,7 @@
 #endif
 
 /* Check whether PLLSAI must be enabled */
-#if IS_ACTIVE(CLOCK_REQUIRE_PLLSAIP)
+#if IS_ACTIVE(CLOCK_REQUIRE_PLLSAIP) || IS_ACTIVE(CLOCK_REQUIRE_PLLSAIR)
 #define CLOCK_ENABLE_PLLSAI             1
 #else
 #define CLOCK_ENABLE_PLLSAI             0
@@ -553,6 +565,20 @@ void stmclk_init_sysclk(void)
         RCC->PLLI2SCFGR = (CONFIG_PLLI2S_SRC | PLLI2S_M | PLLI2S_N | PLLI2S_P | PLLI2S_Q | PLLI2S_R);
         RCC->CR |= (RCC_CR_PLLI2SON);
         while (!(RCC->CR & RCC_CR_PLLI2SRDY)) {}
+    }
+#endif
+
+#if defined(RCC_DCKCFGR1_PLLSAIDIVR)
+    if (IS_USED(MODULE_PERIPH_LTDC)) {
+        RCC->DCKCFGR1 &= ~RCC_DCKCFGR1_PLLSAIDIVR;
+        RCC->DCKCFGR1 |= RCC_DCKCFGR1_PLLSAIDIVR_0; /* Divide by 4 */
+    }
+#endif
+
+#if defined(RCC_DCKCFGR_PLLSAIDIVR)
+    if (IS_USED(MODULE_PERIPH_LTDC)) {
+        RCC->DCKCFGR &= ~RCC_DCKCFGR_PLLSAIDIVR;
+        RCC->DCKCFGR |= RCC_DCKCFGR_PLLSAIDIVR_0; /* Divide by 4 */
     }
 #endif
 

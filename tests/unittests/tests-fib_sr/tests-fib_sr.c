@@ -67,7 +67,7 @@ static int _create_sr(const char *pre, size_t from, size_t to, fib_sr_t *sr, siz
 
     for (size_t i = from; i < to; ++i) {
         int res;
-        snprintf(&(addr_nxt[strlen(pre)]), buf_size, "%d", (int)i);
+        snprintf(&(addr_nxt[strlen(pre)]), buf_size, "%" PRIuSIZE, i);
         /* append a  hop */
         res = fib_sr_entry_append(&test_fib_sr_table, sr, (uint8_t *)&addr_nxt, buf_size);
         if (res != 0) {
@@ -76,7 +76,6 @@ static int _create_sr(const char *pre, size_t from, size_t to, fib_sr_t *sr, siz
     }
     return 0;
 }
-
 
 /*
  * @brief create a new empty source route and check the parameters
@@ -207,7 +206,6 @@ static void test_fib_sr_04_create_and_delete_sr(void)
 
     /* test wrong parameter */
     TEST_ASSERT_EQUAL_INT(-EFAULT, fib_sr_delete(&test_fib_sr_table, NULL));
-
 
     TEST_ASSERT_EQUAL_INT(0, fib_sr_delete(&test_fib_sr_table, local_sourceroutes[0]));
 
@@ -344,7 +342,6 @@ static void test_fib_sr_06_create_sr_with_hops(void)
 
     fib_deinit(&test_fib_sr_table);
 }
-
 
 /*
  * @brief create a new source route with a number of hops on its path,
@@ -650,7 +647,6 @@ static void test_fib_sr_12_get_consecutive_sr(void)
                                                  (uint8_t *)&addr_nxt,
                                                  add_buf_size)
                           );
-
 
     /* Create SR1 Z5,.., Z7,XX  */
     TEST_ASSERT_EQUAL_INT(0, fib_sr_create(&test_fib_sr_table, &local_sourceroutes[2],

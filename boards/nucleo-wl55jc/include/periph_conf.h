@@ -31,7 +31,9 @@
 #define CONFIG_BOARD_HAS_HSE            1
 #endif
 
-#define CLOCK_HSE                       MHZ(32)
+#ifndef CONFIG_CLOCK_HSE
+#define CONFIG_CLOCK_HSE                       MHZ(32)
+#endif
 
 #include "periph_cpu.h"
 #include "clk_conf.h"
@@ -78,17 +80,33 @@ static const uart_conf_t uart_config[] = {
 
 #define UART_NUMOF          ARRAY_SIZE(uart_config)
 /** @} */
+
 /**
  * @name    SPI configuration
  * @{
  */
 static const spi_conf_t spi_config[] = {
     {
+        .dev      = SUBGHZSPI, /* Internally connected to Sub-GHz radio Modem  */
+        .mosi_pin = GPIO_UNDEF,
+        .miso_pin = GPIO_UNDEF,
+        .sclk_pin = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
+        .mosi_af  = GPIO_AF_UNDEF,
+        .miso_af  = GPIO_AF_UNDEF,
+        .sclk_af  = GPIO_AF_UNDEF,
+        .cs_af    = GPIO_AF_UNDEF,
+        .rccmask  = RCC_APB3ENR_SUBGHZSPIEN,
+        .apbbus   = APB3,
+    },
+/* SUBGHZ DEBUG PINS use the SPI1 pins */
+#if !IS_ACTIVE(CONFIG_STM32_WLX5XX_SUBGHZ_DEBUG)
+    {
         .dev      = SPI1,
         .mosi_pin = GPIO_PIN(PORT_A, 7),
         .miso_pin = GPIO_PIN(PORT_A, 6),
         .sclk_pin = GPIO_PIN(PORT_A, 5),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .mosi_af  = GPIO_AF5,
         .miso_af  = GPIO_AF5,
         .sclk_af  = GPIO_AF5,
@@ -96,9 +114,15 @@ static const spi_conf_t spi_config[] = {
         .rccmask  = RCC_APB2ENR_SPI1EN,
         .apbbus   = APB2,
     }
+#endif
 };
 
-#define SPI_NUMOF           ARRAY_SIZE(spi_config)
+#define SPI_NUMOF               ARRAY_SIZE(spi_config)
+/**
+ * @brief   Provide ARDUINO_SPI_D11D12D13 explicitly, as the first SPI
+ *          interface is connected to the radio.
+ */
+#define ARDUINO_SPI_D11D12D13   SPI_DEV(1)
 /** @} */
 
 /**
@@ -115,6 +139,7 @@ static const i2c_conf_t i2c_config[] = {
         .sda_af         = GPIO_AF4,
         .bus            = APB1,
         .rcc_mask       = RCC_APB1ENR1_I2C2EN,
+        .rcc_sw_mask    = RCC_CCIPR_I2C2SEL_1,  /* HSI (16 MHz) */
         .irqn           = I2C2_ER_IRQn,
     }
 };

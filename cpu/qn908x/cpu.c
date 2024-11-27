@@ -18,6 +18,7 @@
  */
 
 #include "cpu.h"
+#include "kernel_init.h"
 #include "periph/init.h"
 
 #include "stdio_base.h"
@@ -51,7 +52,7 @@ void cpu_init(void)
     cpu_clock_init();
 
     /* initialize stdio prior to periph_init() to allow use of DEBUG() there */
-    stdio_init();
+    early_init();
     /* trigger static peripheral initialization */
     periph_init();
 }
@@ -70,7 +71,6 @@ void cpu_clock_init(void)
 #error "One of the CONFIG_BOARD_XTAL_* must be set."
 #endif
 #endif /* CONFIG_BOARD_HAS_XTAL */
-
 
     /* Set up 32K clock source. */
 #if CONFIG_CPU_CLK_32K_XTAL

@@ -9,24 +9,18 @@ mainmenu "RIOT Configuration"
 # Load macro definitions
 rsource "kconfigs/Kconfig.consts"
 
-# Load feature declarations
-rsource "kconfigs/Kconfig.features"
-
-# Load error symbols
-rsource "kconfigs/Kconfig.errors"
-
 # For now, get used modules as macros from this file (see kconfig.mk)
 osource "$(KCONFIG_GENERATED_DEPENDENCIES)"
 
-# Load first board configurations, which might override CPU's
+# Load first the application configuration, as it may declare symbols in priority
+osource "$(APPDIR)/Kconfig"
+
+# Load board configurations, which might override CPU's
 orsource "$(BOARDDIR)/Kconfig"
 orsource "$(RIOTCPU)/$(CPU)/Kconfig"
 
 rsource "$(RIOTBOARD)/Kconfig"
 rsource "$(RIOTCPU)/Kconfig"
-
-# The application may declare new symbols as well
-osource "$(APPDIR)/Kconfig"
 
 rsource "core/Kconfig"
 rsource "drivers/Kconfig"
@@ -34,19 +28,12 @@ rsource "sys/Kconfig"
 rsource "pkg/Kconfig"
 
 menu "External Modules"
-osource "$(KCONFIG_EXTERNAL_CONFIGS)"
+osource "$(KCONFIG_EXTERNAL_MODULE_CONFIGS)"
 endmenu # External Modules
 
-comment "RIOT is in a migration phase."
+menu "External Packages"
+osource "$(KCONFIG_EXTERNAL_PKG_CONFIGS)"
+endmenu # External Packages
+
 comment "Some configuration options may not be here. Use CFLAGS instead."
-
-comment "!! ERROR: There are conflicting modules active !!"
-    depends on ERROR_MODULES_CONFLICT != ""
-
-config TEST_KCONFIG
-    bool
-    default y if '$(TEST_KCONFIG)' = '1'
-    help
-        This is used during the Kconfig migration to test the module dependency
-        modelling. Don't change the default value unless you know what you are
-        doing.
+comment "Ideally, make a PR to add them to the Kconfig."

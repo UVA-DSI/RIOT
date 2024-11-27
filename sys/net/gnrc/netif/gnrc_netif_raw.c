@@ -24,7 +24,6 @@
 #define IP_VERSION4     (0x40U)
 #define IP_VERSION6     (0x60U)
 
-
 static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt);
 static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif);
 
@@ -105,13 +104,24 @@ static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif)
     return pkt;
 }
 
+static gnrc_pktsnip_t *_skip_pkt_head(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
+{
+    if (gnrc_netif_netdev_legacy_api(netif)) {
+        /* we don't need the netif snip: remove it */
+        return gnrc_pktbuf_remove_snip(pkt, pkt);
+    }
+    else {
+        /* _tx_done() will free the entire list */
+        return pkt->next;
+    }
+}
+
 static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
 {
     int res = -ENOBUFS;
 
     if (pkt->type == GNRC_NETTYPE_NETIF) {
-        /* we don't need the netif snip: remove it */
-        pkt = gnrc_pktbuf_remove_snip(pkt, pkt);
+        pkt = _skip_pkt_head(netif, pkt);
     }
 
     netdev_t *dev = netif->dev;
@@ -121,8 +131,10 @@ static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
 #endif
 
     res = dev->driver->send(dev, (iolist_t *)pkt);
-    /* release old data */
-    gnrc_pktbuf_release(pkt);
+    if (gnrc_netif_netdev_legacy_api(netif)) {
+        /* only for legacy drivers we need to release pkt here */
+        gnrc_pktbuf_release(pkt);
+    }
     return res;
 }
 

@@ -162,6 +162,89 @@
 * For complex statements it is always good to use more parentheses - or split up
   the statement and simplify it.
 
+## Indentation of Preprocessor Directives
+
+Add two spaces of indent *after* the `#` per level of indent. Increment the
+indent when entering conditional compilation using `#if`/`#ifdef`/`#ifndef`
+(except for the include guard, which does not add to the indent). Treat indent
+for C language statements and C preprocessor directives independently.
+
+```
+/* BAD: */
+#if XOSC1
+#define XOSC XOSC1
+#define XOSC_NUM 1
+#elif XOSC2
+#define XOSC XSOC2
+#define XOSC_NUM 2
+#endif /* XOSC1/XOSC2 */
+```
+
+```
+/* GOOD: */
+#if XOSC1
+#  define XOSC XOSC1
+#  define XOSC_NUM 1
+#elif XOSC2
+#  define XOSC XSOC2
+#  define XOSC_NUM 2
+#endif
+```
+
+```
+/* BAD: */
+void init_foo(uint32_t param)
+{
+    (void)param;
+    #if HAS_FOO
+    switch (param) {
+    case CASE1:
+        do_foo_init_for_case1;
+        break;
+    #if HAS_CASE_2
+    case CASE2:
+        do_foo_init_for_case2;
+        break;
+        #endif
+    #endif
+}
+```
+
+```
+/* GOOD: */
+void init_foo(uint32_t param)
+{
+    (void)param;
+#if HAS_FOO
+    switch (param) {
+    case CASE1:
+        do_foo_init_for_case1;
+        break;
+#  if HAS_CASE_2
+    case CASE2:
+        do_foo_init_for_case2;
+        break;
+#  endif
+#endif
+}
+```
+
+### Reasoning
+
+Adding the indent does improve readability a lot, more than adding comments.
+Hence, we prefer the indent to allow reviewers to quickly grasp the structure
+of the code.
+
+Adding spaces before the `#` is not in compliance with the C standard (even
+though in practice compilers will be just fine with whitespace in front), but
+adding spaces afterwards is standard compliant. In either case, having the `#`
+at the beginning of the line makes it visually stand out from C statements,
+which eases reading the code.
+
+Using an indent width of 2 makes preprocessor directives visually more
+distinctive from C code, which helps to quickly understand the structure
+of code.
+
 ## Includes
 
 * The include of system headers (in <>-brackets) always precedes RIOT specific
@@ -171,9 +254,27 @@
   statement around includes of optional headers:
 ```c
 #ifdef MODULE_ABC
-#include "abc.h"
+#  include "abc.h"
 #endif
 ```
+
+### Include What You Use (IWYU)
+
+`#include` directives that are not actually needed should be removed to reduce
+clutter and improve compilation speed. Similar: Try to add the corresponding
+`#include`s for all the functions, macros, types, etc. used and do not rely on
+`bar.h` to implicitly include `foo.h`, unless this is documented behavior.
+
+Tools such as [clang's Include Cleaner][clangd-include-cleaner] can help with
+that. These tools may show false positives in cases where headers are *expected*
+to be included indirectly: E.g. if `foo.h` is the public header that contains
+common helpers and implementations, but a per platform `foo_arch.h` is included
+from within `foo.h` for platform specific implementations. If in this scenario
+only functions provided by `foo_arch.h` are included, the `#include` of `foo.h`
+is considered as unused. To avoid this, one should add
+[`/* IWYU pragma: export */`](https://github.com/include-what-you-use/include-what-you-use/blob/master/docs/IWYUPragmas.md) after `#include "foo_arch.h"` in `foo.h`.
+
+[clangd-include-cleaner]: https://clangd.llvm.org/design/include-cleaner
 
 ## Header Guards
 
@@ -257,7 +358,7 @@ Wrong:
   functionality.
 * Every function must be documented - including parameters and return value.
 
-An examplary doxygen documentation in a header file can look like this.
+An exemplary doxygen documentation in a header file can look like this.
 
 ```
 /*
@@ -301,9 +402,7 @@ Some solutions to correctly handle compilation warnings.
 Solution for string formatting errors:
 
 * When printing a `size_t`
-    * use `%u` and cast the variable to `(unsigned)` because `newlib-nano` does
-      not support `%zu`
-      [example](https://github.com/RIOT-OS/RIOT/blob/e19f6463c09fc22c76c5b855799054cf27a697f1/tests/sizeof_tcb/main.c#L34)
+    * use `PRIuSIZE` from `architecture.h` because `newlib-nano` does not support `%zu`
 * When printing an `unsigned char/uint8_t`
     * Use `%u` because `newlib-nano` does not support `%hu/PRIu8`
       [example](https://github.com/RIOT-OS/RIOT/pull/4851)

@@ -19,6 +19,7 @@
  */
 
 #include <errno.h>
+#include <stdalign.h>
 #include <stdio.h>
 #ifdef PICOLIBC_TLS
 #include <picotls.h>
@@ -33,6 +34,15 @@
 
 #define ENABLE_DEBUG 0
 #include "debug.h"
+
+#if defined(HAVE_VALGRIND_H)
+#  include <valgrind.h>
+#elif defined(HAVE_VALGRIND_VALGRIND_H)
+#  include <valgrind/valgrind.h>
+#else
+#  define   VALGRIND_DISABLE_ERROR_REPORTING    (void)0
+#  define   VALGRIND_ENABLE_ERROR_REPORTING     (void)0
+#endif
 
 thread_status_t thread_getstatus(kernel_pid_t pid)
 {
@@ -170,24 +180,34 @@ void thread_add_to_list(list_node_t *list, thread_t *thread)
     list->next = new_node;
 }
 
-#ifdef DEVELHELP
-uintptr_t thread_measure_stack_free(const char *stack)
+uintptr_t measure_stack_free_internal(const char *stack, size_t size)
 {
     /* Alignment of stack has been fixed (if needed) by thread_create(), so
      * we can silence -Wcast-align here */
     uintptr_t *stackp = (uintptr_t *)(uintptr_t)stack;
+    uintptr_t end = (uintptr_t)stack + size;
 
-    /* assume that the comparison fails before or after end of stack */
+    /* HACK: This will affect native/native64 only.
+     *
+     * The dark magic used here is frowned upon by valgrind. E.g. valgrind may
+     * deduce that a specific value was at some point allocated on the stack,
+     * but has gone out of scope. When that value is now read again to
+     * estimate stack usage, it does look a lot like someone passed a pointer
+     * to a stack allocated value, and that pointer is referenced after that
+     * value has gone out of scope. */
+    VALGRIND_DISABLE_ERROR_REPORTING;
+
     /* assume that the stack grows "downwards" */
-    while (*stackp == (uintptr_t)stackp) {
+    while (((uintptr_t)stackp < end) && (*stackp == (uintptr_t)stackp)) {
         stackp++;
     }
+
+    VALGRIND_ENABLE_ERROR_REPORTING;
 
     uintptr_t space_free = (uintptr_t)stackp - (uintptr_t)stack;
 
     return space_free;
 }
-#endif
 
 kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
                            int flags, thread_task_func_t function, void *arg,
@@ -205,9 +225,9 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
 #endif
 
     /* align the stack on a 16/32bit boundary */
-    uintptr_t misalignment = (uintptr_t)stack % ALIGN_OF(void *);
+    uintptr_t misalignment = (uintptr_t)stack % alignof(void *);
     if (misalignment) {
-        misalignment = ALIGN_OF(void *) - misalignment;
+        misalignment = alignof(void *) - misalignment;
         stack += misalignment;
         stacksize -= misalignment;
     }
@@ -216,7 +236,7 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
     stacksize -= sizeof(thread_t);
 
     /* round down the stacksize to a multiple of thread_t alignments (usually 16/32bit) */
-    stacksize -= stacksize % ALIGN_OF(thread_t);
+    stacksize -= stacksize % alignof(thread_t);
 
     if (stacksize < 0) {
         DEBUG("thread_create: stacksize is too small!\n");
@@ -227,14 +247,30 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
     thread_t *thread = (thread_t *)(uintptr_t)(stack + stacksize);
 
 #ifdef PICOLIBC_TLS
-    stacksize -= _tls_size();
+#if __PICOLIBC_MAJOR__ > 1 || __PICOLIBC_MINOR__ >= 8
+#define TLS_ALIGN       (alignof(thread_t) > _tls_align() ? alignof(thread_t) : _tls_align())
+#else
+#define TLS_ALIGN       alignof(thread_t)
+#endif
+    char *tls = stack + stacksize - _tls_size();
+    /*
+     * Make sure the TLS area is aligned as required and that the
+     * resulting stack will also be aligned as required
+     */
+    thread->tls = (void *) ((uintptr_t) tls & ~ (TLS_ALIGN - 1));
+    stacksize = (char *) thread->tls - stack;
 
-    thread->tls = stack + stacksize;
     _init_tls(thread->tls);
 #endif
 
-#if defined(DEVELHELP) || defined(SCHED_TEST_STACK)
-    if (flags & THREAD_CREATE_STACKTEST) {
+#if defined(DEVELHELP) || defined(SCHED_TEST_STACK) \
+    || defined(MODULE_TEST_UTILS_PRINT_STACK_USAGE)
+    if (flags & THREAD_CREATE_NO_STACKTEST) {
+        /* create stack guard. Alignment has been handled above, so silence
+         * -Wcast-align */
+        *(uintptr_t *)(uintptr_t)stack = (uintptr_t)stack;
+    }
+    else {
         /* assign each int of the stack the value of it's address. Alignment
          * has been handled above, so silence -Wcast-align */
         uintptr_t *stackmax = (uintptr_t *)(uintptr_t)(stack + stacksize);
@@ -244,11 +280,6 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
             *stackp = (uintptr_t)stackp;
             stackp++;
         }
-    }
-    else {
-        /* create stack guard. Alignment has been handled above, so silence
-         * -Wcast-align */
-        *(uintptr_t *)(uintptr_t)stack = (uintptr_t)stack;
     }
 #endif
 
@@ -274,8 +305,8 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
     thread->pid = pid;
     thread->sp = thread_stack_init(function, arg, stack, stacksize);
 
-#if defined(DEVELHELP) || defined(SCHED_TEST_STACK) || \
-    defined(MODULE_MPU_STACK_GUARD)
+#if defined(DEVELHELP) || IS_ACTIVE(SCHED_TEST_STACK) || \
+    defined(MODULE_MPU_STACK_GUARD) || defined(MODULE_CORTEXM_STACK_LIMIT)
     thread->stack_start = stack;
 #endif
 

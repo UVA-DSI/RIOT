@@ -14,6 +14,7 @@
  *
  * @file
  * @brief       Interface definition for the ENC28J60 driver
+ * @anchor      drivers_enc28j60
  *
  * @author      Hauke Petersen <hauke.petersen@fu-berlin.de>
  */
@@ -47,7 +48,7 @@ typedef struct {
  */
 typedef struct {
     netdev_t netdev;        /**< pull in the netdev fields */
-    enc28j60_params_t p;    /**< SPI and pin confiuration */
+    enc28j60_params_t p;    /**< SPI and pin configuration */
     mutex_t lock;           /**< lock the device on access */
     uint32_t tx_time;       /**< last transmission time for timeout handling */
 } enc28j60_t;

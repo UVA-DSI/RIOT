@@ -7,41 +7,44 @@
 
 config CPU_STM32
     bool
-    select HAS_CPU_STM32
-    select HAS_PERIPH_CPUID
-    select HAS_PERIPH_GPIO
-    select HAS_PERIPH_GPIO_IRQ
-    select HAS_PERIPH_TIMER_PERIODIC
-    select HAS_PERIPH_RTT_OVERFLOW
-    select HAS_PERIPH_UART_MODECFG
-    select HAS_PERIPH_UART_NONBLOCKING
+
+menu "STM32 configuration"
 
 # Common CPU symbol
 config CPU
     default "stm32" if CPU_STM32
 
-# Definition of specific features
-config HAS_CPU_STM32
-    bool
+
+menu "STM32 clock configuration"
+    depends on CPU_STM32
+
+rsource "kconfigs/Kconfig.clk"
+orsource "kconfigs/$(CPU_FAM)/Kconfig.clk"
+
+endmenu
+
+rsource "kconfigs/$(CPU_FAM)/Kconfig"
+rsource "kconfigs/$(CPU_FAM)/Kconfig.lines"
+rsource "kconfigs/$(CPU_FAM)/Kconfig.models"
+
+choice
+    prompt "ReaDout Protection level"
+    default RDP0
     help
-        Indicates that a 'stm32' cpu is being used.
+        Set minimum running RDP level.
+        RDP0 is full debug permissions, RDP1 disables read from Flash but
+        otherwise leaves debug enabled, RDP2 disables JTAG completely. If
+        there is a mismatch between desired RDP level here and RDP level
+        set on the chip, early cpu init will hang.  This ensures production
+        devices with the wrong RDP level, by fault or malace intent, will
+        not run.  See cpu manual for further details on RDP.
+depends on (CPU_FAM_F1 || CPU_FAM_F2 || CPU_FAM_F3 || CPU_FAM_F4 || CPU_FAM_F7)
+config RDP0
+    bool "RDP0"
+config RDP1
+    bool "RDP1"
+config RDP2
+    bool "RDP2"
+endchoice
 
-config HAS_BOOTLOADER_STM32
-    bool
-    help
-        Indicates that the stm32 bootloader is being used.
-
-orsource "kconfigs/Kconfig.clk"
-orsource "kconfigs/*/Kconfig"
-orsource "kconfigs/*/Kconfig.lines"
-orsource "kconfigs/*/Kconfig.models"
-
-if TEST_KCONFIG
-
-rsource "periph/Kconfig"
-rsource "stmclk/Kconfig"
-rsource "vectors/Kconfig"
-
-endif # TEST_KCONFIG
-
-source "$(RIOTCPU)/cortexm_common/Kconfig"
+endmenu

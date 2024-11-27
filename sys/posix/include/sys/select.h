@@ -29,10 +29,16 @@
 #ifndef SYS_SELECT_H
 #define SYS_SELECT_H
 
+#ifdef CPU_NATIVE
+/* On native, system headers may depend on system's <sys/select.h>. Hence,
+ * include the real sys/select.h here. */
+__extension__
+#include_next <sys/select.h>
+#endif
+
 #include <string.h>
 /* prevent cyclic dependency with newlib/picolibc's `sys/types.h` */
-#if (defined(MODULE_NEWLIB) || defined(MODULE_PICOLIBC)) && \
-    !defined(CPU_ESP32) && !defined(CPU_ESP8266)
+#if (defined(MODULE_NEWLIB) || defined(MODULE_PICOLIBC)) && !defined(CPU_ESP8266)
 #include <sys/_timeval.h>
 #else
 #include <sys/time.h>
@@ -43,6 +49,13 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @brief   @ref core_thread_flags for POSIX select
+ */
+#define POSIX_SELECT_THREAD_FLAG    (1U << 3)
+
+#ifndef CPU_NATIVE
 
 /**
  * @addtogroup  config_posix
@@ -60,13 +73,8 @@ extern "C" {
 #endif
 /** @} */
 
-/**
- * @brief   @ref core_thread_flags for POSIX select
- */
-#define POSIX_SELECT_THREAD_FLAG    (1U << 3)
-
 /* ESP's newlib has this already defined in `sys/types.h` */
-#if !defined(CPU_ESP32) && !defined(CPU_ESP8266)
+#if !defined(CPU_ESP8266)
 /**
  * @brief   Maximum number of file descriptors in an `fd_set` structure.
  *
@@ -164,6 +172,8 @@ static inline void FD_ZERO(fd_set *fdsetp)
  */
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
            struct timeval *timeout);
+
+#endif /* CPU_NATIVE */
 
 #ifdef __cplusplus
 }

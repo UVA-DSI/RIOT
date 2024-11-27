@@ -35,6 +35,7 @@
 #include "gnrc_rpl_internal/globals.h"
 
 #include "net/gnrc/rpl.h"
+#include "net/gnrc/rpl/rpble.h"
 #ifdef MODULE_GNRC_RPL_P2P
 #include "net/gnrc/rpl/p2p.h"
 #include "net/gnrc/rpl/p2p_dodag.h"
@@ -86,7 +87,7 @@ kernel_pid_t gnrc_rpl_init(kernel_pid_t if_pid)
         _instance_id = 0;
         /* start the event loop */
         gnrc_rpl_pid = thread_create(_stack, sizeof(_stack), GNRC_RPL_PRIO,
-                                     THREAD_CREATE_STACKTEST,
+                                     0,
                                      _event_loop, (void*)&eventloop_startup,
                                      "RPL");
 
@@ -121,14 +122,19 @@ kernel_pid_t gnrc_rpl_init(kernel_pid_t if_pid)
     }
 
     /* register all_RPL_nodes multicast address */
-    gnrc_netif_ipv6_group_join_internal(gnrc_netif_get_by_pid(if_pid),
-                                        &ipv6_addr_all_rpl_nodes);
+    gnrc_netif_t *netif = gnrc_netif_get_by_pid(if_pid);
+    gnrc_netif_ipv6_group_join_internal(netif, &ipv6_addr_all_rpl_nodes);
 
+    /* send DODAG Information Solicitation */
     gnrc_rpl_send_DIS(NULL, (ipv6_addr_t *) &ipv6_addr_all_rpl_nodes, NULL, 0);
+
+    /* RPL enables routing, start advertising ourself as a router */
+    gnrc_ipv6_nib_change_rtr_adv_iface(netif, true);
+
     return gnrc_rpl_pid;
 }
 
-gnrc_rpl_instance_t *gnrc_rpl_root_init(uint8_t instance_id, ipv6_addr_t *dodag_id,
+gnrc_rpl_instance_t *gnrc_rpl_root_init(uint8_t instance_id, const ipv6_addr_t *dodag_id,
                                         bool gen_inst_id, bool local_inst_id)
 {
     if (gen_inst_id) {
@@ -165,6 +171,7 @@ gnrc_rpl_instance_t *gnrc_rpl_root_init(uint8_t instance_id, ipv6_addr_t *dodag_
     trickle_start(gnrc_rpl_pid, &dodag->trickle, GNRC_RPL_MSG_TYPE_TRICKLE_MSG,
                   (1 << dodag->dio_min), dodag->dio_interval_doubl,
                   dodag->dio_redun);
+    gnrc_rpl_rpble_update(dodag);
 
     return inst;
 }
@@ -417,6 +424,18 @@ uint8_t gnrc_rpl_gen_instance_id(bool local)
     instance_id = ((_instance_id++) & GNRC_RPL_GLOBAL_INSTANCE_MASK);
     mutex_unlock(&_inst_id_mutex);
     return instance_id;
+}
+
+void gnrc_rpl_configure_root(gnrc_netif_t *netif, const ipv6_addr_t *dodag_id)
+{
+    gnrc_rpl_init(netif->pid);
+    gnrc_rpl_instance_t *inst = gnrc_rpl_instance_get(
+            CONFIG_GNRC_RPL_DEFAULT_INSTANCE
+        );
+    if (inst) {
+        gnrc_rpl_instance_remove(inst);
+    }
+    gnrc_rpl_root_init(CONFIG_GNRC_RPL_DEFAULT_INSTANCE, dodag_id, false, false);
 }
 
 /**

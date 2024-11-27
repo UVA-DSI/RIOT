@@ -52,7 +52,6 @@ typedef enum {
     NRF24L01P_AW_5BYTE  /**< address width is 5 Byte */
 } nrf24l01p_aw_t;
 
-
 /**
  * @brief   Defines the RF datarate.
  */
@@ -121,7 +120,6 @@ typedef enum {
 typedef enum {
     RCV_PKT_NRF24L01P = 0,  /**< transceiver received data */
 } nrf24l01p_rx_event_t ;
-
 
 /**
 * @brief   Read one register of the nrf24l01+ transceiver.
@@ -313,7 +311,7 @@ int nrf24l01p_set_address_width(const nrf24l01p_t *dev, nrf24l01p_aw_t aw);
 *
 * @ note
 * This function sets the payload width for one packet. If the maximum of 32 bytes is
-* exeeded, this value is set to 32.
+* exceeded, this value is set to 32.
 *
 * @param[in] dev    Transceiver device to use.
 * @param[in] pipe   RX pipe to set the payload width.

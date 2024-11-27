@@ -109,8 +109,6 @@ int aip31068_init(aip31068_t *dev, const aip31068_params_t *params)
     dev->_curr_display_control = 0;
     dev->_curr_entry_mode_set = 0;
 
-    i2c_init(dev->params.i2c_dev);
-
     uint8_t _function_set = 0;
 
     /* configure bit mode */
@@ -398,9 +396,7 @@ static int _device_write(aip31068_t* dev, uint8_t *data, uint8_t len)
 {
     i2c_t i2c_dev = dev->params.i2c_dev;
 
-    if (i2c_acquire(i2c_dev) != 0) {
-        return -1;
-    }
+    i2c_acquire(i2c_dev);
 
     int rc = i2c_write_bytes(i2c_dev, dev->params.i2c_addr, data, len, 0);
 

@@ -9,18 +9,20 @@ RIOTBASE ?= ../../
 
 # Include board's default network devices and auto-initialization of GNRC
 # interfaces
-USEMODULE += gnrc_netdev_default
+USEMODULE += netdev_default
 USEMODULE += auto_init_gnrc_netif
 
 # Add support for GNRC LoRaWAN
 USEMODULE += gnrc_lorawan
+# Add support for GNRC LoRaWAN 1.1
+# USEMODULE += gnrc_lorawan_1_1
 
 # Use GNRC pktdump to print downlink messages
 USEMODULE += gnrc_pktdump
 
 # Include the shell and shell commands.
 USEMODULE += shell
-USEMODULE += shell_commands
+USEMODULE += shell_cmds_default
 
 # Use GNRC Txtsnd to transmit LoRaWAN from the shell
 USEMODULE += gnrc_txtsnd
@@ -45,17 +47,10 @@ include $(RIOTBASE)/Makefile.include
 
 # Check if being configured via Kconfig
 ifndef CONFIG_KCONFIG_USEMODULE_LORAWAN
-
-  # Tell GNRC to encode LoRaWAN port in the GNRC netif header.
-  # This allows us to use `gnrc_txtsnd` to send data from the shell using the
-  # `txtsnd` command.
-  #
-  # Note: From Release 22.01 all GNRC LoRaWAN packets will include the netif
-  # header. Therefore this flag will be removed after that
-  CFLAGS += -DCONFIG_GNRC_NETIF_LORAWAN_NETIF_HDR
-
   CFLAGS += -DCONFIG_LORAMAC_APP_KEY_DEFAULT=\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"
+  CFLAGS += -DCONFIG_LORAMAC_NWK_KEY_DEFAULT=\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"
   CFLAGS += -DCONFIG_LORAMAC_APP_EUI_DEFAULT=\"BBBBBBBBBBBBBBBB\"
+  CFLAGS += -DCONFIG_LORAMAC_JOIN_EUI_DEFAULT=\"BBBBBBBBBBBBBBBB\"
   CFLAGS += -DCONFIG_LORAMAC_DEV_EUI_DEFAULT=\"CCCCCCCCCCCCCCCC\"
 
   # For TTN, It's necessary to set the RX2 DR to 3 in EU_868 region

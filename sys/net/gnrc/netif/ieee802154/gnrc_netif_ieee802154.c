@@ -54,7 +54,7 @@ static gnrc_pktsnip_t *_make_netif_hdr(uint8_t *mhr)
 
     dst_len = ieee802154_get_dst(mhr, dst, &_pan_tmp);
     src_len = ieee802154_get_src(mhr, src, &_pan_tmp);
-    if ((dst_len < 0) || (src_len < 0)) {
+    if ((dst_len < 0) || (src_len <= 0)) {
         DEBUG("_make_netif_hdr: unable to get addresses\n");
         return NULL;
     }
@@ -185,8 +185,11 @@ static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif)
                 uint16_t payload_size = 0;
                 uint8_t *mic = NULL;
                 uint8_t mic_size = 0;
+                netdev_ieee802154_t *netdev_ieee802154 = container_of(dev,
+                                                                      netdev_ieee802154_t,
+                                                                      netdev);
                 if (mhr[0] & NETDEV_IEEE802154_SECURITY_EN) {
-                    if (ieee802154_sec_decrypt_frame(&((netdev_ieee802154_t *)dev)->sec_ctx,
+                    if (ieee802154_sec_decrypt_frame(&netdev_ieee802154->sec_ctx,
                                                      nread,
                                                      mhr, (uint8_t *)&mhr_len,
                                                      &payload, &payload_size,
@@ -248,7 +251,7 @@ static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif)
 static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
 {
     netdev_t *dev = netif->dev;
-    netdev_ieee802154_t *state = (netdev_ieee802154_t *)netif->dev;
+    netdev_ieee802154_t *state = container_of(dev, netdev_ieee802154_t, netdev);
     gnrc_netif_hdr_t *netif_hdr;
     const uint8_t *src, *dst = NULL;
     int res = 0;
@@ -395,8 +398,10 @@ static int _send(gnrc_netif_t *netif, gnrc_pktsnip_t *pkt)
     res = dev->driver->send(dev, &iolist_header);
 #endif
 
-    /* release old data */
-    gnrc_pktbuf_release(pkt);
+    if (gnrc_netif_netdev_legacy_api(netif)) {
+        /* only for legacy drivers we need to release pkt here */
+        gnrc_pktbuf_release(pkt);
+    }
     return res;
 }
 /** @} */

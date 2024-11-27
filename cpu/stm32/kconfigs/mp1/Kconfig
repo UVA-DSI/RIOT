@@ -8,13 +8,6 @@ config CPU_FAM_MP1
     bool
     select CPU_STM32
     select CPU_CORE_CORTEX_M4F
-    select HAS_CORTEXM_MPU
-    select HAS_CPU_STM32MP1
 
 config CPU_FAM
     default "mp1" if CPU_FAM_MP1
-
-config HAS_CPU_STM32MP1
-    bool
-    help
-        Indicates that the cpu being used belongs to the 'stm32mp1' family.

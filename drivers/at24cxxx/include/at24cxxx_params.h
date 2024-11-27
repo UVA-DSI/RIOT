@@ -11,7 +11,7 @@
  * @{
  *
  * @file
- * @brief       Default configuration for AT24CXXX
+ * @brief       Default configuration for the AT24CXXX driver
  *
  * @author      Fabian Hüßler <fabian.huessler@ovgu.de>
  */
@@ -73,9 +73,9 @@ extern "C" {
  */
 #define AT24CXXX_PARAMS                {            \
     .i2c = AT24CXXX_PARAM_I2C,                      \
-    .dev_addr = AT24CXXX_PARAM_ADDR,                \
     .pin_wp = AT24CXXX_PARAM_PIN_WP,                \
     .eeprom_size = AT24CXXX_PARAM_EEPROM_SIZE,      \
+    .dev_addr = AT24CXXX_PARAM_ADDR,                \
     .page_size = AT24CXXX_PARAM_PAGE_SIZE,          \
     .max_polls = AT24CXXX_PARAM_MAX_POLLS           \
 }

@@ -50,6 +50,7 @@
 #ifndef NIMBLE_STATCONN_H
 #define NIMBLE_STATCONN_H
 
+#include <errno.h>
 #include <stdint.h>
 
 #include "nimble_netif.h"
@@ -113,14 +114,19 @@ extern "C" {
 #endif
 
 /**
- * @brief   Return codes used by the statconn module
+ * @brief   BLE PHY mode used by statconn. This value is only used if statconn
+ *          is used in its extended mode (module `nimble_statconn_ext`)
  */
-enum {
-    NIMBLE_STATCONN_OK      =  0,   /**< all groovy */
-    NIMBLE_STATCONN_NOSLOT  = -1,   /**< no more connection slot available */
-    NIMBLE_STATCONN_NOTCONN = -2,   /**< given address is not managed */
-    NIMBLE_STATCONN_INUSE   = -3,   /**< given peer is already managed */
-};
+#ifndef NIMBLE_STATCONN_PHY_MODE
+#define NIMBLE_STATCONN_PHY_MODE            NIMBLE_PHY_1M
+#endif
+
+/**
+ * @brief   Statconn connection parameters
+ */
+typedef struct {
+    nimble_phy_t phy_mode;          /**< BLE PHY mode used for the connection */
+} nimble_statconn_cfg_t;
 
 /**
  * @brief   Initialize the statconn module
@@ -147,31 +153,39 @@ void nimble_statconn_eventcb(nimble_netif_eventcb_t cb);
  * connection by that master.
  *
  * @param[in] addr      BLE address of the peer
+ * @param[in] cfg       additional connection parameters, set to NULL to apply
+ *                      default values
  *
- * @return  NIMBLE_STATCONN_OK if peer was successfully added
- * @return  NIMBLE_STATCONN_INUSE if the peer address is already in use
- * @return  NIMBLE_STATCONN_NOSLOT if no empty connection slot is available
+ * @return  0 if peer was successfully added
+ * @return  -EALREADY if the peer address is already in use
+ * @return  -ENOMEM if no empty connection slot is available
+ * @return  -EINVAL if invalid configuration parameters are given
  */
-int nimble_statconn_add_master(const uint8_t *addr);
+int nimble_statconn_add_master(const uint8_t *addr,
+                               const nimble_statconn_cfg_t *cfg);
 
 /**
  * @brief   Connect to a peer (slave) with a given address as master
  *
  * @param[in] addr      BLE address of the peer
+ * @param[in] cfg       additional connection parameters, set to NULL to apply
+ *                      default values
  *
- * @return  NIMBLE_STATCONN_OK if peer was successfully added
- * @return  NIMBLE_STATCONN_INUSE if the peer address is already in use
- * @return  NIMBLE_STATCONN_NOSLOT if no empty connection slot is available
+ * @return  0 if peer was successfully added
+ * @return  -EALREADY if the peer address is already in use
+ * @return  -ENOMEM if no empty connection slot is available
+ * @return  -EINVAL if invalid configuration parameters are given
  */
-int nimble_statconn_add_slave(const uint8_t *addr);
+int nimble_statconn_add_slave(const uint8_t *addr,
+                              const nimble_statconn_cfg_t *cfg);
 
 /**
  * @brief   Remove the connection to the given peer
  *
  * @param[in] addr      BLE address of the peer
  *
- * @return  NIMBLE_STATCONN_OK if peer was successfully removed
- * @return  NIMBLE_STATCONN_NOTCONN if given address is not managed
+ * @return  0 if peer was successfully removed
+ * @return  -ENOTCONN if given address is not managed
  */
 int nimble_statconn_rm(const uint8_t *addr);
 

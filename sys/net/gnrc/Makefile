@@ -88,6 +88,12 @@ endif
 ifneq (,$(filter gnrc_rpl_p2p,$(USEMODULE)))
   DIRS += routing/rpl/p2p
 endif
+ifneq (,$(filter gnrc_ipv6_static_addr,$(USEMODULE)))
+  DIRS += network_layer/ipv6/static_addr
+endif
+ifneq (,$(filter gnrc_ipv6_auto_subnets,$(USEMODULE)))
+  DIRS += routing/ipv6_auto_subnets
+endif
 ifneq (,$(filter gnrc_sixlowpan,$(USEMODULE)))
   DIRS += network_layer/sixlowpan
 endif
@@ -129,6 +135,9 @@ ifneq (,$(filter gnrc_sock_ip,$(USEMODULE)))
 endif
 ifneq (,$(filter gnrc_sock_udp,$(USEMODULE)))
   DIRS += sock/udp
+endif
+ifneq (,$(filter gnrc_sock_tcp,$(USEMODULE)))
+  DIRS += sock/tcp
 endif
 ifneq (,$(filter gnrc_udp,$(USEMODULE)))
   DIRS += transport_layer/udp

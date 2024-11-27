@@ -62,6 +62,13 @@ extern "C" {
 #endif
 
 /**
+ * @brief   Default width of ZTIMER_LPTIMER
+ */
+#ifndef CONFIG_ZTIMER_LPTIMER_WIDTH
+#define CONFIG_ZTIMER_LPTIMER_WIDTH     (32)
+#endif
+
+/**
  * @brief   ZTIMER_USEC optimal minimum value for ztimer_set()
  *
  * When scheduling an ISR every timer will be set to:
@@ -115,6 +122,13 @@ extern "C" {
 #endif
 
 /**
+ * @brief   The minimum pm mode required for ZTIMER_LPTIMER to run
+ */
+#ifndef CONFIG_ZTIMER_LPTIMER_BLOCK_PM_MODE
+#  define CONFIG_ZTIMER_LPTIMER_BLOCK_PM_MODE ZTIMER_CLOCK_NO_REQUIRED_PM_MODE
+#endif
+
+/**
  * @brief   The minimum pm mode required for ZTIMER_RTT to run
  */
 #ifndef CONFIG_ZTIMER_RTT_BLOCK_PM_MODE
@@ -134,6 +148,54 @@ extern "C" {
 #  else
 #    define CONFIG_ZTIMER_RTC_BLOCK_PM_MODE ZTIMER_CLOCK_NO_REQUIRED_PM_MODE
 #  endif
+#endif
+
+/**
+ * @brief   An offset for ZTIMER_USEC allowing to compensate for the offset
+ *          introduced by turning on the underlying peripheral.
+ *
+ * @note    This value can be measured with the
+ *          `tests/sys/ztimer_ondemand_benchmark` tool.
+ *
+ *          This value should be configured in the board.h.
+ */
+#ifndef CONFIG_ZTIMER_USEC_ADJUST_CLOCK_START
+#define CONFIG_ZTIMER_USEC_ADJUST_CLOCK_START   0
+#endif
+
+/**
+ * @brief   An offset for ZTIMER_USEC allowing to compensate for the offset
+ *          of @ref ztimer_set(). It can be measured with @ref ztimer_overhead_set()
+ *
+ *          This value should be configured in the board.h.
+ *
+ */
+#ifndef CONFIG_ZTIMER_USEC_ADJUST_SET
+#define CONFIG_ZTIMER_USEC_ADJUST_SET     0
+#endif
+
+/**
+ * @brief   An offset for ZTIMER_USEC allowing to compentsate for the offset
+ *          of @ref ztimer_sleep().
+ *
+ * @note    As internally @ref ztimer_sleep() uses @ref ztimer_set()
+ *          @ref CONFIG_ZTIMER_USEC_ADJUST_SET should be tuned before.
+ *
+ *          This value should be configured in the board.h.
+ */
+#ifndef CONFIG_ZTIMER_USEC_ADJUST_SLEEP
+#define CONFIG_ZTIMER_USEC_ADJUST_SLEEP   0
+#endif
+
+/**
+ * @brief   Some MCUs clocks need some warm-up time during which timing is
+ *          inaccurate. This can be a hindrance when using the @ref
+ *          pseudomodule_ztimer_auto_adjust module.
+ *
+ * @warning This value will increase the boards start-up time
+ */
+#ifndef CONFIG_ZTIMER_AUTO_ADJUST_SETTLE
+#define CONFIG_ZTIMER_AUTO_ADJUST_SETTLE    0
 #endif
 
 #ifdef __cplusplus

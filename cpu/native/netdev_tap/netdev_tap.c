@@ -32,12 +32,7 @@
 /* needs to be included before native's declarations of ntohl etc. */
 #include "byteorder.h"
 
-#ifdef __MACH__
-#include <net/if.h>
-#include <sys/types.h>
-#include <ifaddrs.h>
-#include <net/if_dl.h>
-#elif defined(__FreeBSD__)
+#ifdef __FreeBSD__
 #include <sys/socket.h>
 #include <net/if.h>
 #include <ifaddrs.h>
@@ -71,27 +66,33 @@ static int _recv(netdev_t *netdev, void *buf, size_t n, void *info);
 
 static inline void _get_mac_addr(netdev_t *netdev, uint8_t *dst)
 {
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
     memcpy(dst, dev->addr, ETHERNET_ADDR_LEN);
 }
 
 static inline void _set_mac_addr(netdev_t *netdev, const uint8_t *src)
 {
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
     memcpy(dev->addr, src, ETHERNET_ADDR_LEN);
 }
 
 static inline int _get_promiscuous(netdev_t *netdev)
 {
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
     return dev->promiscuous;
 }
 
 static inline int _set_promiscuous(netdev_t *netdev, int value)
 {
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
     dev->promiscuous = value;
     return value;
+}
+
+static inline int _get_wired(netdev_t *netdev)
+{
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
+    return dev->wired;
 }
 
 static inline void _isr(netdev_t *netdev)
@@ -124,6 +125,16 @@ static int _get(netdev_t *dev, netopt_t opt, void *value, size_t max_len)
             *((bool*)value) = (bool)_get_promiscuous(dev);
             res = sizeof(bool);
             break;
+        case NETOPT_IS_WIRED:
+            if (!_get_wired(dev)) {
+                res = -ENOTSUP;
+            } else {
+                if (value) {
+                    *((bool*)value) = true;
+                }
+                res = sizeof(bool);
+            }
+            break;
         default:
             res = netdev_eth_get(dev, opt, value, max_len);
             break;
@@ -155,6 +166,17 @@ static int _set(netdev_t *dev, netopt_t opt, const void *value, size_t value_len
     return res;
 }
 
+static int _confirm_send(netdev_t *netdev, void *info)
+{
+    (void)netdev;
+    (void)info;
+
+    /* confirm_send should not be called with synchronos send */
+    assert(0);
+
+    return -EOPNOTSUPP;
+}
+
 static const netdev_driver_t netdev_driver_tap = {
     .send = _send,
     .recv = _recv,
@@ -162,6 +184,7 @@ static const netdev_driver_t netdev_driver_tap = {
     .isr = _isr,
     .get = _get,
     .set = _set,
+    .confirm_send = _confirm_send,
 };
 
 /* driver implementation */
@@ -206,7 +229,7 @@ static void _continue_reading(netdev_tap_t *dev)
 
 static int _recv(netdev_t *netdev, void *buf, size_t len, void *info)
 {
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
     (void)info;
 
     if (!buf) {
@@ -275,31 +298,29 @@ static int _recv(netdev_t *netdev, void *buf, size_t len, void *info)
 
 static int _send(netdev_t *netdev, const iolist_t *iolist)
 {
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
 
     struct iovec iov[iolist_count(iolist)];
 
     unsigned n;
     iolist_to_iovec(iolist, iov, &n);
 
-    int res = _native_writev(dev->tap_fd, iov, n);
-
-    if (netdev->event_callback) {
-        netdev->event_callback(netdev, NETDEV_EVENT_TX_COMPLETE);
-    }
-    return res;
+    return _native_writev(dev->tap_fd, iov, n);
 }
 
-void netdev_tap_setup(netdev_tap_t *dev, const netdev_tap_params_t *params) {
+void netdev_tap_setup(netdev_tap_t *dev, const netdev_tap_params_t *params, int index) {
     dev->netdev.driver = &netdev_driver_tap;
     strncpy(dev->tap_name, *(params->tap_name), IFNAMSIZ - 1);
     dev->tap_name[IFNAMSIZ - 1] = '\0';
+    dev->wired = params->wired;
+    netdev_register(&dev->netdev, NETDEV_TAP, index);
 }
 
 static void _tap_isr(int fd, void *arg) {
     (void) fd;
 
-    netdev_t *netdev = (netdev_t *)arg;
+    netdev_tap_t *dev = arg;
+    netdev_t *netdev = &dev->netdev;
 
     if (netdev->event_callback) {
         netdev_trigger_event_isr(netdev);
@@ -311,20 +332,17 @@ static void _tap_isr(int fd, void *arg) {
 
 static int _init(netdev_t *netdev)
 {
-    DEBUG("%s:%s:%u\n", RIOT_FILE_RELATIVE, __func__, __LINE__);
+    DEBUG("%s:%s:%u\n", __FILE__, __func__, __LINE__);
 
-    netdev_tap_t *dev = (netdev_tap_t*)netdev;
+    netdev_tap_t *dev = container_of(netdev, netdev_tap_t, netdev);
 
-    /* check device parametrs */
+    /* check device parameters */
     if (dev == NULL) {
         return -ENODEV;
     }
 
     char *name = dev->tap_name;
-#ifdef __MACH__ /* OSX */
-    char clonedev[255] = "/dev/"; /* XXX bad size */
-    strncpy(clonedev + 5, name, 250);
-#elif defined(__FreeBSD__)
+#ifdef __FreeBSD__
     char clonedev[255] = "/dev/"; /* XXX bad size */
     strncpy(clonedev + 5, name, 250);
 #else /* Linux */
@@ -337,7 +355,7 @@ static int _init(netdev_t *netdev)
     if ((dev->tap_fd = real_open(clonedev, O_RDWR | O_NONBLOCK)) == -1) {
         err(EXIT_FAILURE, "open(%s)", clonedev);
     }
-#if (defined(__MACH__) || defined(__FreeBSD__)) /* OSX/FreeBSD */
+#if __FreeBSD__ /* FreeBSD */
     struct ifaddrs *iflist;
     if (real_getifaddrs(&iflist) == 0) {
         for (struct ifaddrs *cur = iflist; cur; cur = cur->ifa_next) {
@@ -385,5 +403,9 @@ static int _init(netdev_t *netdev)
     native_async_read_add_handler(dev->tap_fd, netdev, _tap_isr);
 
     DEBUG("gnrc_tapnet: initialized.\n");
+
+    /* signal link UP */
+    netdev->event_callback(netdev, NETDEV_EVENT_LINK_UP);
+
     return 0;
 }

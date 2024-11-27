@@ -59,10 +59,10 @@
 #endif
 
 #if IS_ACTIVE(CONFIG_BOARD_HAS_HSE)
-#define PLL_IN                      CLOCK_HSE
+#define PLL_IN                      CONFIG_CLOCK_HSE
 #define PLL_SRC                     RCC_PLLCFGR_PLLSRC_HSE
 #else
-#define PLL_IN                      CLOCK_HSI
+#define PLL_IN                      CONFIG_CLOCK_HSI
 #define PLL_SRC                     RCC_PLLCFGR_PLLSRC_HSI
 #endif
 
@@ -70,6 +70,10 @@
 #define RCC_CFGR_SW_HSI             (0)
 #define RCC_CFGR_SW_HSE             (RCC_CFGR_SW_0)
 #define RCC_CFGR_SW_PLL             (RCC_CFGR_SW_1)
+
+#define RCC_CFGR_SWS_HSI            (0)
+#define RCC_CFGR_SWS_HSE            (RCC_CFGR_SWS_0)
+#define RCC_CFGR_SWS_PLL            (RCC_CFGR_SWS_1)
 
 #if CONFIG_CLOCK_HSISYS_DIV == 1
 #define CLOCK_HSI_DIV               (0)

@@ -6,5 +6,3 @@
 
 config BOARD_COMMON_NRF51
     bool
-    select HAS_PERIPH_RTT
-    select HAS_PERIPH_TIMER

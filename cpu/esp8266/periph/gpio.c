@@ -62,7 +62,7 @@ gpio_pin_usage_t _gpio_pin_usage [GPIO_PIN_NUMOF] =
    _SPIF,   /* gpio6  SPI flash CLK */
    _SPIF,   /* gpio7  SPI flash MISO */
    _SPIF,   /* gpio8  SPI flash MOSI */
-   #if defined(FLASH_MODE_QIO) || defined(FLASH_MODE_QOUT)
+   #if defined(CONFIG_FLASHMODE_QIO) || defined(CONFIG_FLASHMODE_QOUT)
    _SPIF,   /* gpio9  SPI flash HD (qio/qout flash mode) */
    _SPIF,   /* gpio10 SPI flash WP (qio/qout flash mode) */
    #else
@@ -237,7 +237,7 @@ void gpio_irq_disable (gpio_t pin)
 }
 #endif /* MODULE_PERIPH_GPIO_IRQ */
 
-int gpio_read (gpio_t pin)
+bool gpio_read (gpio_t pin)
 {
     CHECK_PARAM_RET(pin < GPIO_PIN_NUMOF, -1);
 
@@ -249,7 +249,7 @@ int gpio_read (gpio_t pin)
     return (GPIO.IN & BIT(pin)) ? 1 : 0;
 }
 
-void gpio_write (gpio_t pin, int value)
+void gpio_write (gpio_t pin, bool value)
 {
     DEBUG("%s: %d %d\n", __func__, pin, value);
 

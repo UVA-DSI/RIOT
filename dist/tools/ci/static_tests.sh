@@ -114,9 +114,12 @@ export BASE_BRANCH="${CI_BASE_BRANCH}"
 run ./dist/tools/whitespacecheck/check.sh "${BASE_BRANCH}"
 DIFFFILTER="MR" ERROR_EXIT_CODE=0 run ./dist/tools/licenses/check.sh
 DIFFFILTER="AC" run ./dist/tools/licenses/check.sh
+run ./dist/tools/ci/check_features_existing_inc_mk_is_up_to_date.sh
 run ./dist/tools/doccheck/check.sh
 run ./dist/tools/externc/check.sh
-run ./dist/tools/cppcheck/check.sh
+# broken configuration produces many false positives
+# TODO: fix config and re-enable
+# run ./dist/tools/cppcheck/check.sh
 run ./dist/tools/vera++/check.sh
 run ./dist/tools/coccinelle/check.sh
 run ./dist/tools/flake8/check.sh
@@ -125,6 +128,9 @@ run ./dist/tools/buildsystem_sanity_check/check.sh
 run ./dist/tools/feature_resolution/check.sh
 run ./dist/tools/boards_supported/check.sh
 run ./dist/tools/codespell/check.sh
+run ./dist/tools/cargo-checks/check.sh
+run ./dist/tools/examples_check/check_has_readme.sh
+run ./dist/tools/examples_check/check_in_readme.sh
 if [ -z "${GITHUB_RUN_ID}" ]; then
     run ./dist/tools/uncrustify/uncrustify.sh --check
 else

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Freie Universität Berlin
+ * Copyright (C) 2014-2017 Freie Universität Berlin
  *
  * This file is subject to the terms and conditions of the GNU Lesser
  * General Public License v2.1. See the file LICENSE in the top level
@@ -75,6 +75,7 @@
  * @brief       Scheduler API definition
  *
  * @author      Kaspar Schleiser <kaspar@schleiser.de>
+ * @author      Hauke Petersen <hauke.petersen@fu-berlin.de>
  */
 
 #ifndef SCHED_H
@@ -96,7 +97,11 @@ extern "C" {
  * @brief The maximum number of threads to be scheduled
  */
 #ifndef MAXTHREADS
+#if defined(MODULE_CORE_THREAD)
 #define MAXTHREADS 32
+#else
+#define MAXTHREADS 0
+#endif
 #endif
 
 /**
@@ -118,6 +123,15 @@ extern "C" {
  * Macro for printing formatter
  */
 #define PRIkernel_pid PRIi16
+
+#if defined(DEVELHELP) || defined(DOXYGEN)
+/**
+ * Enables detection of stack overflows and measures stack usage when != 0
+ */
+#ifndef SCHED_TEST_STACK
+#define SCHED_TEST_STACK    1
+#endif  /* SCHED_TEST_STACK */
+#endif  /* DEVELHELP */
 
 /**
  * Unique process identifier
@@ -170,7 +184,7 @@ typedef enum {
  */
 #define STATUS_ON_RUNQUEUE      STATUS_RUNNING  /**< to check if on run queue:
                                                    `st >= STATUS_ON_RUNQUEUE`   */
-#define STATUS_NOT_FOUND ((thread_status_t)-1)  /**< Describes an illegal thread status */
+#define STATUS_NOT_FOUND ((thread_status_t)~0)  /**< Describes an illegal thread status */
 /** @} */
 /**
  * @def SCHED_PRIO_LEVELS
@@ -244,6 +258,19 @@ extern clist_node_t sched_runqueues[SCHED_PRIO_LEVELS];
 NORETURN void sched_task_exit(void);
 
 /**
+ * @brief   Change the priority of the given thread
+ *
+ * @note    This functions expects interrupts to be disabled when called!
+ *
+ * @pre     (thread != NULL)
+ * @pre     (priority < SCHED_PRIO_LEVELS)
+ *
+ * @param[in,out] thread    target thread
+ * @param[in]     priority  new priority to assign to @p thread
+ */
+void sched_change_priority(thread_t *thread, uint8_t priority);
+
+/**
  * @brief  Set CPU to idle mode (CPU dependent)
  *
  * Only used when there's no idle thread.
@@ -296,6 +323,62 @@ void sched_register_cb(sched_callback_t callback);
 static inline void sched_runq_advance(uint8_t prio)
 {
     clist_lpoprpush(&sched_runqueues[prio]);
+}
+
+#if (IS_USED(MODULE_SCHED_RUNQ_CALLBACK)) || defined(DOXYGEN)
+/**
+ * @brief   Scheduler runqueue (change) callback
+ *
+ * @details Function has to be provided by the user of this API.
+ *          It will be called:
+ *          - when the scheduler is run,
+ *          - when a thread enters the active queue or
+ *          - when the last thread leaves a queue
+ *
+ * @warning This API is not intended for out of tree users.
+ *          Breaking API changes will be done without notice and
+ *          without deprecation. Consider yourself warned!
+ *
+ * @param   prio      the priority of the runqueue that changed
+ *
+ */
+extern void sched_runq_callback(uint8_t prio);
+#endif
+
+/**
+ * @brief   Tell if the number of threads in a runqueue is 0
+ *
+ * @param[in]   prio      The priority of the runqueue to get information of
+ * @return      Truth value for that information
+ * @warning     This API is not intended for out of tree users.
+ */
+static inline int sched_runq_is_empty(uint8_t prio)
+{
+    return clist_is_empty(&sched_runqueues[prio]);
+}
+
+/**
+ * @brief   Tell if the number of threads in a runqueue is 1
+ *
+ * @param[in]   prio      The priority of the runqueue to get information of
+ * @return      Truth value for that information
+ * @warning     This API is not intended for out of tree users.
+ */
+static inline int sched_runq_exactly_one(uint8_t prio)
+{
+    return clist_exactly_one(&sched_runqueues[prio]);
+}
+
+/**
+ * @brief   Tell if the number of threads in a runqueue greater than 1
+ *
+ * @param[in]   prio      The priority of the runqueue to get information of
+ * @return      Truth value for that information
+ * @warning     This API is not intended for out of tree users.
+ */
+static inline int sched_runq_more_than_one(uint8_t prio)
+{
+    return clist_more_than_one(&sched_runqueues[prio]);
 }
 
 #ifdef __cplusplus

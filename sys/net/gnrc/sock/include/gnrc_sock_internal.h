@@ -56,6 +56,14 @@ extern "C" {
 #define GNRC_SOCK_DYN_PORTRANGE_ERR (0)
 
 /**
+ * @brief   Check if remote address of a UDP packet matches the address the socket
+ *          is bound to.
+ */
+#ifndef CONFIG_GNRC_SOCK_UDP_CHECK_REMOTE_ADDR
+#define CONFIG_GNRC_SOCK_UDP_CHECK_REMOTE_ADDR (1)
+#endif
+
+/**
  * @brief   Structure to retrieve auxiliary data from @ref gnrc_sock_recv
  *
  * @details The members of this function depend on the modules used
@@ -125,13 +133,15 @@ static inline void gnrc_ep_set(sock_ip_ep_t *out, const sock_ip_ep_t *in,
                                size_t in_size)
 {
     memcpy(out, in, in_size);
-    if (gnrc_netif_highlander()) {
-        /* set interface implicitly */
-        gnrc_netif_t *netif = gnrc_netif_iter(NULL);
+    if (out->netif != SOCK_ADDR_ANY_NETIF) {
+        return;
+    }
 
-        if (netif != NULL) {
-            out->netif = netif->pid;
-        }
+    /* set interface implicitly */
+    gnrc_netif_t *netif = gnrc_netif_iter(NULL);
+    if ((netif != NULL) &&
+        (gnrc_netif_highlander() || (gnrc_netif_iter(netif) == NULL))) {
+        out->netif = netif->pid;
     }
 }
 
@@ -154,10 +164,9 @@ ssize_t gnrc_sock_recv(gnrc_sock_reg_t *reg, gnrc_pktsnip_t **pkt, uint32_t time
  */
 ssize_t gnrc_sock_send(gnrc_pktsnip_t *payload, sock_ip_ep_t *local,
                        const sock_ip_ep_t *remote, uint8_t nh);
-/**
+/** @internal
  * @}
  */
-
 
 #ifdef __cplusplus
 }

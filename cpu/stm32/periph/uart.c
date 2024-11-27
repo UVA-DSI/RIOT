@@ -35,7 +35,8 @@
 #include "pm_layered.h"
 
 #if defined(CPU_LINE_STM32L4R5xx) || defined(CPU_FAM_STM32G0) || \
-    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32WL)
+    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32U5) || \
+    defined(CPU_FAM_STM32WL) || defined(CPU_FAM_STM32C0)
 #define ISR_REG     ISR
 #define ISR_TXE     USART_ISR_TXE_TXFNF
 #define ISR_RXNE    USART_ISR_RXNE_RXFNE
@@ -62,7 +63,8 @@
 #endif
 
 #if defined(CPU_LINE_STM32L4R5xx) || defined(CPU_FAM_STM32G0) || \
-    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32WL)
+    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32U5) || \
+    defined(CPU_FAM_STM32WL) || defined(CPU_FAM_STM32C0)
 #define RXENABLE            (USART_CR1_RE | USART_CR1_RXNEIE_RXFNEIE)
 #else
 #define RXENABLE            (USART_CR1_RE | USART_CR1_RXNEIE)
@@ -98,7 +100,8 @@ static inline USART_TypeDef *dev(uart_t uart)
 static inline void uart_init_usart(uart_t uart, uint32_t baudrate);
 #if defined(CPU_FAM_STM32L0) || defined(CPU_FAM_STM32L4) || \
     defined(CPU_FAM_STM32WB) || defined(CPU_FAM_STM32G4) || \
-    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32WL)
+    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32U5) || \
+    defined(CPU_FAM_STM32WL)
 #ifdef MODULE_PERIPH_LPUART
 static inline void uart_init_lpuart(uart_t uart, uint32_t baudrate);
 #endif
@@ -192,7 +195,8 @@ int uart_init(uart_t uart, uint32_t baudrate, uart_rx_cb_t rx_cb, void *arg)
 
 #if defined(CPU_FAM_STM32L0) || defined(CPU_FAM_STM32L4) || \
     defined(CPU_FAM_STM32WB) || defined(CPU_FAM_STM32G4) || \
-    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32WL)
+    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32U5) || \
+    defined(CPU_FAM_STM32WL)
     switch (uart_config[uart].type) {
         case STM32_USART:
             uart_init_usart(uart, baudrate);
@@ -302,10 +306,10 @@ static inline void uart_init_usart(uart_t uart, uint32_t baudrate)
 
     switch (uart_config[uart].clk_src) {
         case RCC_UART35CKSELR_UART35SRC_2:  /* HSI */
-            clk = CLOCK_HSI;
+            clk = CONFIG_CLOCK_HSI;
             break;
         case RCC_UART35CKSELR_UART35SRC_4:  /* HSE */
-            clk = CLOCK_HSE;
+            clk = CONFIG_CLOCK_HSE;
             break;
         default: /* return */
             return;
@@ -322,11 +326,16 @@ static inline void uart_init_usart(uart_t uart, uint32_t baudrate)
 
 #if defined(CPU_FAM_STM32L0) || defined(CPU_FAM_STM32L4) || \
     defined(CPU_FAM_STM32WB) || defined(CPU_FAM_STM32G4) || \
-    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32WL)
+    defined(CPU_FAM_STM32L5) || defined(CPU_FAM_STM32U5) || \
+    defined(CPU_FAM_STM32WL)
 #ifdef CPU_FAM_STM32L5
 #define RCC_CCIPR_LPUART1SEL_0  RCC_CCIPR1_LPUART1SEL_0
 #define RCC_CCIPR_LPUART1SEL_1  RCC_CCIPR1_LPUART1SEL_1
 #define CCIPR                   CCIPR1
+#elif CPU_FAM_STM32U5
+#define RCC_CCIPR_LPUART1SEL_0  RCC_CCIPR3_LPUART1SEL_0
+#define RCC_CCIPR_LPUART1SEL_1  RCC_CCIPR3_LPUART1SEL_1
+#define CCIPR                   CCIPR3
 #endif
 #ifdef MODULE_PERIPH_LPUART
 static inline void uart_init_lpuart(uart_t uart, uint32_t baudrate)
@@ -385,10 +394,8 @@ void uart_write(uart_t uart, const uint8_t *data, size_t len)
     }
 #endif
 #ifdef MODULE_PERIPH_DMA
-    if (!len) {
-        return;
-    }
-    if (uart_config[uart].dma != DMA_STREAM_UNDEF) {
+    if (len > CONFIG_UART_DMA_THRESHOLD_BYTES &&
+        uart_config[uart].dma != DMA_STREAM_UNDEF) {
         if (irq_is_in()) {
             uint16_t todo = 0;
             if (dev(uart)->CR3 & USART_CR3_DMAT) {

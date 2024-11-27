@@ -25,11 +25,21 @@
 #include <string.h>
 #include <errno.h>
 
-#include "mtd.h"
-#include "xtimer.h"
-#include "thread.h"
+#include "busy_wait.h"
 #include "byteorder.h"
+#include "kernel_defines.h"
+#include "macros/math.h"
+#include "macros/utils.h"
+#include "mtd.h"
 #include "mtd_spi_nor.h"
+#include "time_units.h"
+#include "thread.h"
+
+#if IS_USED(MODULE_ZTIMER)
+#include "ztimer.h"
+#elif IS_USED(MODULE_XTIMER)
+#include "xtimer.h"
+#endif
 
 #define ENABLE_DEBUG    0
 #include "debug.h"
@@ -45,6 +55,8 @@
 #define SFLASH_CMD_4_BYTE_ADDR (0xB7)   /**< enable 32 bit addressing */
 #define SFLASH_CMD_3_BYTE_ADDR (0xE9)   /**< enable 24 bit addressing */
 
+#define SFLASH_CMD_ULBPR       (0x98)   /**< Global Block Protection Unlock */
+
 #define MTD_64K             (65536ul)
 #define MTD_64K_ADDR_MASK   (0xFFFF)
 #define MTD_32K             (32768ul)
@@ -53,8 +65,6 @@
 #define MTD_4K_ADDR_MASK    (0xFFF)
 
 #define MBIT_AS_BYTES       ((1024 * 1024) / 8)
-
-#define MIN(a, b) ((a) > (b) ? (b) : (a))
 
 /**
  * @brief   JEDEC memory manufacturer ID codes.
@@ -66,6 +76,7 @@
 
 typedef enum {
     SPI_NOR_JEDEC_ATMEL = 0x1F | JEDEC_BANK(1),
+    SPI_NOR_JEDEC_MICROCHIP = 0xBF | JEDEC_BANK(1),
 } jedec_manuf_t;
 /** @} */
 
@@ -88,7 +99,7 @@ static void mtd_spi_release(const mtd_spi_nor_t *dev)
 static inline uint8_t* _be_addr(const mtd_spi_nor_t *dev, uint32_t *addr)
 {
     *addr = htonl(*addr);
-    return &((uint8_t*)addr)[4 - dev->params->addr_width];
+    return &((uint8_t*)addr)[4 - dev->addr_width];
 }
 
 /**
@@ -111,7 +122,7 @@ static void mtd_spi_cmd_addr_read(const mtd_spi_nor_t *dev, uint8_t opcode,
 
     if (IS_ACTIVE(ENABLE_TRACE)) {
         TRACE("mtd_spi_cmd_addr_read: addr:");
-        for (unsigned int i = 0; i < dev->params->addr_width; ++i) {
+        for (unsigned int i = 0; i < dev->addr_width; ++i) {
             TRACE(" %02x", addr_buf[i]);
         }
         TRACE("\n");
@@ -120,7 +131,7 @@ static void mtd_spi_cmd_addr_read(const mtd_spi_nor_t *dev, uint8_t opcode,
     /* Send opcode followed by address */
     spi_transfer_byte(_get_spi(dev), dev->params->cs, true, opcode);
     spi_transfer_bytes(_get_spi(dev), dev->params->cs, true,
-                       (char *)addr_buf, NULL, dev->params->addr_width);
+                       (char *)addr_buf, NULL, dev->addr_width);
 
     /* Read data */
     spi_transfer_bytes(_get_spi(dev), dev->params->cs, false,
@@ -147,7 +158,7 @@ static void mtd_spi_cmd_addr_write(const mtd_spi_nor_t *dev, uint8_t opcode,
 
     if (IS_ACTIVE(ENABLE_TRACE)) {
         TRACE("mtd_spi_cmd_addr_write: addr:");
-        for (unsigned int i = 0; i < dev->params->addr_width; ++i) {
+        for (unsigned int i = 0; i < dev->addr_width; ++i) {
             TRACE(" %02x", addr_buf[i]);
         }
         TRACE("\n");
@@ -159,7 +170,7 @@ static void mtd_spi_cmd_addr_write(const mtd_spi_nor_t *dev, uint8_t opcode,
     /* only keep CS asserted when there is data that follows */
     bool cont = (count > 0);
     spi_transfer_bytes(_get_spi(dev), dev->params->cs, cont,
-                       (char *)addr_buf, NULL, dev->params->addr_width);
+                       (char *)addr_buf, NULL, dev->addr_width);
 
     /* Write data */
     if (cont) {
@@ -257,7 +268,7 @@ static int mtd_spi_read_jedec_id(const mtd_spi_nor_t *dev, mtd_jedec_id_t *out)
     uint8_t bank = 0;
     while (buffer[bank] == JEDEC_NEXT_BANK) {
         if (++bank == JEDEC_BANK_MAX) {
-            DEBUG_PUTS("mtd_spi_read_jedec_id: bank out of bounds\n")
+            DEBUG_PUTS("mtd_spi_read_jedec_id: bank out of bounds\n");
             return -1;
         }
     }
@@ -301,21 +312,59 @@ static uint32_t mtd_spi_nor_get_size(const mtd_jedec_id_t *id)
     if (mtd_spi_manuf_match(id, SPI_NOR_JEDEC_ATMEL) &&
         /* ID 2 is used to encode the product version, usually 1 or 2 */
         (id->device[1] & ~0x3) == 0) {
-        return (0x1F & id->device[0]) * MBIT_AS_BYTES;
+        /* capacity encoded as power of 32k sectors */
+        return (32 * 1024) << (0x1F & id->device[0]);
+    }
+    if (mtd_spi_manuf_match(id, SPI_NOR_JEDEC_MICROCHIP)) {
+        switch (id->device[1]) {
+        case 0x12:  /* SST26VF020A */
+        case 0x8c:  /* SST25VF020B */
+            return 2 * MBIT_AS_BYTES;
+        case 0x54:  /* SST26WF040B */
+        case 0x8d:  /* SST25VF040B */
+            return 4 * MBIT_AS_BYTES;
+        case 0x58:  /* SST26WF080B */
+        case 0x8e:  /* SST25VF080B */
+            return 8 * MBIT_AS_BYTES;
+        case 0x1:   /* SST26VF016  */
+        case 0x41:  /* SST26VF016B */
+            return 16 * MBIT_AS_BYTES;
+        case 0x2:   /* SST26VF032  */
+        case 0x42:  /* SST26VF032B */
+            return 32 * MBIT_AS_BYTES;
+        case 0x43:  /* SST26VF064B */
+        case 0x53:  /* SST26WF064C */
+            return 64 * MBIT_AS_BYTES;
+        }
     }
 
     /* everyone else seems to use device ID 2 for density */
     return 1 << id->device[1];
 }
 
+static void delay_us(unsigned us)
+{
+#if defined(MODULE_ZTIMER_USEC)
+    ztimer_sleep(ZTIMER_USEC, us);
+#elif defined(MODULE_ZTIMER_MSEC)
+    ztimer_sleep(ZTIMER_MSEC, DIV_ROUND_UP(us, US_PER_MS));
+#else
+    busy_wait_us(us);
+#endif
+}
+
 static inline void wait_for_write_complete(const mtd_spi_nor_t *dev, uint32_t us)
 {
     unsigned i = 0, j = 0;
-    uint32_t div = 2;
+    uint32_t div = 1; /* first wait one full interval */
+#if IS_ACTIVE(ENABLE_DEBUG)
     uint32_t diff = 0;
-    if (IS_ACTIVE(ENABLE_DEBUG) && IS_USED(MODULE_XTIMER)) {
-        diff = xtimer_now_usec();
-    }
+#endif
+#if IS_ACTIVE(ENABLE_DEBUG) && IS_USED(MODULE_ZTIMER_USEC)
+    diff = ztimer_now(ZTIMER_USEC);
+#elif IS_ACTIVE(ENABLE_DEBUG) && IS_USED(MODULE_XTIMER)
+    diff = xtimer_now_usec();
+#endif
     do {
         uint8_t status;
         mtd_spi_cmd_read(dev, dev->params->opcode->rdsr, &status, sizeof(status));
@@ -325,34 +374,31 @@ static inline void wait_for_write_complete(const mtd_spi_nor_t *dev, uint32_t us
             break;
         }
         i++;
-#if MODULE_XTIMER
         if (us) {
-            xtimer_usleep(us);
+            uint32_t wait_us = us / div;
+            uint32_t wait_min = 2;
+
+            wait_us = wait_us > wait_min ? wait_us : wait_min;
+
+            delay_us(wait_us);
             /* reduce the waiting time quickly if the estimate was too short,
              * but still avoid busy (yield) waiting */
-            if (us > 2 * XTIMER_BACKOFF) {
-                us -= (us / div);
-                div++;
-            }
-            else {
-                us = 2 * XTIMER_BACKOFF;
-            }
+            div++;
         }
         else {
             j++;
             thread_yield();
         }
-#else
-        (void)div;
-        (void) us;
-        thread_yield();
-#endif
     } while (1);
     DEBUG("wait loop %u times, yield %u times", i, j);
-    if (IS_ACTIVE(ENABLE_DEBUG) && IS_ACTIVE(MODULE_XTIMER)) {
-        diff = xtimer_now_usec() - diff;
-        DEBUG(", total wait %"PRIu32"us", diff);
-    }
+#if IS_ACTIVE(ENABLE_DEBUG)
+#if IS_USED(MODULE_ZTIMER_USEC)
+    diff = ztimer_now(ZTIMER_USEC) - diff;
+#elif IS_USED(MODULE_XTIMER)
+    diff = xtimer_now_usec() - diff;
+#endif
+    DEBUG(", total wait %"PRIu32"us", diff);
+#endif
     DEBUG("\n");
 }
 
@@ -376,6 +422,12 @@ static void _init_pins(mtd_spi_nor_t *dev)
     }
 }
 
+static void _enable_32bit_addr(mtd_spi_nor_t *dev)
+{
+    mtd_spi_cmd(dev, dev->params->opcode->wren);
+    mtd_spi_cmd(dev, SFLASH_CMD_4_BYTE_ADDR);
+}
+
 static int mtd_spi_nor_power(mtd_dev_t *mtd, enum mtd_power_state power)
 {
     mtd_spi_nor_t *dev = (mtd_spi_nor_t *)mtd;
@@ -384,24 +436,25 @@ static int mtd_spi_nor_power(mtd_dev_t *mtd, enum mtd_power_state power)
     switch (power) {
         case MTD_POWER_UP:
             mtd_spi_cmd(dev, dev->params->opcode->wake);
-#if defined(MODULE_XTIMER)
-            /* No sense in trying multiple times if no xtimer to wait between
-               reads */
-            uint8_t retries = 0;
+
+            /* fall back to polling if no timer is used */
+            unsigned retries = MTD_POWER_UP_WAIT_FOR_ID;
+            if (!IS_USED(MODULE_ZTIMER) && !IS_USED(MODULE_XTIMER)) {
+                retries *= dev->params->wait_chip_wake_up * 1000;
+            }
+
             int res = 0;
             do {
-                xtimer_usleep(dev->params->wait_chip_wake_up);
+                delay_us(dev->params->wait_chip_wake_up);
                 res = mtd_spi_read_jedec_id(dev, &dev->jedec_id);
-                retries++;
-            } while (res < 0 && retries < MTD_POWER_UP_WAIT_FOR_ID);
+            } while (res < 0 && --retries);
             if (res < 0) {
+                mtd_spi_release(dev);
                 return -EIO;
             }
-#endif
             /* enable 32 bit address mode */
-            if (dev->params->addr_width == 4) {
-                mtd_spi_cmd(dev, dev->params->opcode->wren);
-                mtd_spi_cmd(dev, SFLASH_CMD_4_BYTE_ADDR);
+            if (dev->addr_width == 4) {
+                _enable_32bit_addr(dev);
             }
 
             break;
@@ -414,6 +467,20 @@ static int mtd_spi_nor_power(mtd_dev_t *mtd, enum mtd_power_state power)
     return 0;
 }
 
+static void _set_addr_width(mtd_dev_t *mtd)
+{
+    mtd_spi_nor_t *dev = (mtd_spi_nor_t *)mtd;
+
+    uint32_t flash_size = mtd->pages_per_sector * mtd->page_size
+                        * mtd->sector_count;
+
+    if (flash_size > (0x1UL << 24)) {
+        dev->addr_width = 4;
+    } else {
+        dev->addr_width = 3;
+    }
+}
+
 static int mtd_spi_nor_init(mtd_dev_t *mtd)
 {
     DEBUG("mtd_spi_nor_init: %p\n", (void *)mtd);
@@ -422,17 +489,13 @@ static int mtd_spi_nor_init(mtd_dev_t *mtd)
     DEBUG("mtd_spi_nor_init: -> spi: %lx, cs: %lx, opcodes: %p\n",
           (unsigned long)_get_spi(dev), (unsigned long)dev->params->cs, (void *)dev->params->opcode);
 
-    /* verify configuration */
-    assert(dev->params->addr_width > 0);
-    assert(dev->params->addr_width <= 4);
-
     /* CS, WP, Hold */
     _init_pins(dev);
 
     /* power up the MTD device*/
-    DEBUG("mtd_spi_nor_init: power up MTD device");
+    DEBUG_PUTS("mtd_spi_nor_init: power up MTD device");
     if (mtd_spi_nor_power(mtd, MTD_POWER_UP)) {
-        DEBUG("mtd_spi_nor_init: failed to power up MTD device");
+        DEBUG_PUTS("mtd_spi_nor_init: failed to power up MTD device");
         return -EIO;
     }
 
@@ -450,6 +513,10 @@ static int mtd_spi_nor_init(mtd_dev_t *mtd)
         mtd->sector_count = mtd_spi_nor_get_size(&dev->jedec_id)
                           / (mtd->pages_per_sector * mtd->page_size);
     }
+    /* SPI NOR is byte addressable; instances don't need to configure that */
+    assert(mtd->write_size <= 1);
+    mtd->write_size = 1;
+    _set_addr_width(mtd);
 
     DEBUG("mtd_spi_nor_init: %" PRIu32 " bytes "
           "(%" PRIu32 " sectors, %" PRIu32 " bytes/sector, "
@@ -459,13 +526,22 @@ static int mtd_spi_nor_init(mtd_dev_t *mtd)
           mtd->sector_count, mtd->pages_per_sector * mtd->page_size,
           mtd->pages_per_sector * mtd->sector_count,
           mtd->pages_per_sector, mtd->page_size);
-    DEBUG("mtd_spi_nor_init: Using %u byte addresses\n", dev->params->addr_width);
+    DEBUG("mtd_spi_nor_init: Using %u byte addresses\n", dev->addr_width);
 
     uint8_t status;
     mtd_spi_cmd_read(dev, dev->params->opcode->rdsr, &status, sizeof(status));
-    mtd_spi_release(dev);
-
     DEBUG("mtd_spi_nor_init: device status = 0x%02x\n", (unsigned int)status);
+
+    /* enable 32 bit address mode */
+    if (dev->addr_width == 4) {
+        _enable_32bit_addr(dev);
+    }
+
+    /* Global Block-Protection Unlock */
+    mtd_spi_cmd(dev, dev->params->opcode->wren);
+    mtd_spi_cmd(dev, SFLASH_CMD_ULBPR);
+
+    mtd_spi_release(dev);
 
     /* check whether page size and sector size are powers of two (most chips' are)
      * and compute the number of shifts needed to get the page and sector addresses
@@ -523,45 +599,6 @@ static int mtd_spi_nor_read(mtd_dev_t *mtd, void *dest, uint32_t addr, uint32_t 
 
     mtd_spi_acquire(dev);
     mtd_spi_cmd_addr_read(dev, dev->params->opcode->read, addr, dest, size);
-    mtd_spi_release(dev);
-
-    return 0;
-}
-
-static int mtd_spi_nor_write(mtd_dev_t *mtd, const void *src, uint32_t addr, uint32_t size)
-{
-    uint32_t total_size = mtd->page_size * mtd->pages_per_sector * mtd->sector_count;
-
-    DEBUG("mtd_spi_nor_write: %p, %p, 0x%" PRIx32 ", 0x%" PRIx32 "\n",
-          (void *)mtd, src, addr, size);
-    if (size == 0) {
-        return 0;
-    }
-    const mtd_spi_nor_t *dev = (mtd_spi_nor_t *)mtd;
-    if (size > mtd->page_size) {
-        DEBUG("mtd_spi_nor_write: ERR: page program >1 page (%" PRIu32 ")!\n", mtd->page_size);
-        return -EOVERFLOW;
-    }
-    if (dev->page_addr_mask &&
-        ((addr & dev->page_addr_mask) != ((addr + size - 1) & dev->page_addr_mask))) {
-        DEBUG("mtd_spi_nor_write: ERR: page program spans page boundary!\n");
-        return -EOVERFLOW;
-    }
-    if (addr + size > total_size) {
-        return -EOVERFLOW;
-    }
-
-    mtd_spi_acquire(dev);
-
-    /* write enable */
-    mtd_spi_cmd(dev, dev->params->opcode->wren);
-
-    /* Page program */
-    mtd_spi_cmd_addr_write(dev, dev->params->opcode->page_program, addr, src, size);
-
-    /* waiting for the command to complete before returning */
-    wait_for_write_complete(dev, 0);
-
     mtd_spi_release(dev);
 
     return 0;
@@ -675,7 +712,6 @@ static int mtd_spi_nor_erase(mtd_dev_t *mtd, uint32_t addr, uint32_t size)
 const mtd_desc_t mtd_spi_nor_driver = {
     .init = mtd_spi_nor_init,
     .read = mtd_spi_nor_read,
-    .write = mtd_spi_nor_write,
     .write_page = mtd_spi_nor_write_page,
     .erase = mtd_spi_nor_erase,
     .power = mtd_spi_nor_power,

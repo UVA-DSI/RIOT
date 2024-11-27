@@ -38,11 +38,7 @@
 #define EVENT_TIMEOUT_H
 
 #include "event.h"
-#if IS_USED(MODULE_EVENT_TIMEOUT_ZTIMER)
 #include "ztimer.h"
-#else
-#include "xtimer.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,17 +48,12 @@ extern "C" {
  * @brief   Timeout Event structure
  */
 typedef struct {
-#if IS_USED(MODULE_EVENT_TIMEOUT_ZTIMER)
-    ztimer_t timer;         /**< ztimer object used for timeout */
     ztimer_clock_t *clock;  /**< ztimer clock to use */
-#else
-    xtimer_t timer;         /**< ztimer object used for timeout */
-#endif
+    ztimer_t timer;         /**< ztimer object used for timeout */
     event_queue_t *queue;   /**< event queue to post event to   */
     event_t *event;         /**< event to post after timeout    */
 } event_timeout_t;
 
-#if IS_USED(MODULE_EVENT_TIMEOUT_ZTIMER) || DOXYGEN
 /**
  * @brief   Initialize timeout event object
  *
@@ -73,8 +64,8 @@ typedef struct {
  */
 void event_timeout_ztimer_init(event_timeout_t *event_timeout, ztimer_clock_t *clock,
                                event_queue_t *queue, event_t *event);
-#endif
 
+#if IS_USED(MODULE_EVENT_TIMEOUT) || DOXYGEN
 /**
  * @brief   Initialize timeout event object
  *
@@ -86,19 +77,20 @@ void event_timeout_ztimer_init(event_timeout_t *event_timeout, ztimer_clock_t *c
  */
 void event_timeout_init(event_timeout_t *event_timeout, event_queue_t *queue,
                         event_t *event);
+#endif
 
 /**
  * @brief   Set a timeout
  *
  * This will make the event as configured in @p event_timeout be triggered
- * after @p timeout microseconds (if using @ref xtimer) or the the @ref
+ * after @p timeout microseconds (if using @ref xtimer) or the @ref
  * ztimer_clock_t ticks.
  *
  * @note: the used event_timeout struct must stay valid until after the timeout
  *        event has been processed!
  *
  * @param[in]   event_timeout   event_timout context object to use
- * @param[in]   timeout         timeout in microseconds ot the ztimer_clock_t
+ * @param[in]   timeout         timeout in microseconds or the ztimer_clock_t
  *                              ticks units
  */
 void event_timeout_set(event_timeout_t *event_timeout, uint32_t timeout);
@@ -114,6 +106,23 @@ void event_timeout_set(event_timeout_t *event_timeout, uint32_t timeout);
  * @param[in]   event_timeout   event_timeout context object to use
  */
 void event_timeout_clear(event_timeout_t *event_timeout);
+
+/**
+ * @brief   Check if a timeout event is scheduled to be executed in the future
+ *
+ * @param[in]   event_timeout   event_timout context object to use
+ * @return      true if the event is scheduled, false otherwise
+ */
+static inline bool event_timeout_is_pending(const event_timeout_t *event_timeout)
+{
+    if (event_timeout->clock == NULL || event_timeout->queue == NULL ||
+        event_timeout->event == NULL) {
+        return false;
+    }
+
+    return ztimer_is_set(event_timeout->clock, &event_timeout->timer)
+        || event_is_queued(event_timeout->queue, event_timeout->event);
+}
 
 #ifdef __cplusplus
 }

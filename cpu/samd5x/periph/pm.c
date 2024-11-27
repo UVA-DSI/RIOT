@@ -45,17 +45,19 @@ void pm_set(unsigned mode)
             _mode = PM_SLEEPCFG_SLEEPMODE_STANDBY;
             deep = 1;
             break;
-        default: /* Falls through */
         case 3:
             DEBUG_PUTS("pm_set(): setting IDLE2 mode.");
             _mode = PM_SLEEPCFG_SLEEPMODE_IDLE2;
             break;
+        default:
+            /* no sleep */
+            return;
     }
 
     /* write sleep configuration */
-    PM->SLEEPCFG.bit.SLEEPMODE = _mode;
+    PM->SLEEPCFG.reg = _mode;
     /* make sure value has been set */
-    while (PM->SLEEPCFG.bit.SLEEPMODE != _mode) {}
+    while ((PM->SLEEPCFG.reg & PM_SLEEPCFG_SLEEPMODE_Msk) != _mode) {}
 
     sam0_cortexm_sleep(deep);
 }

@@ -11,12 +11,11 @@ USEMODULE += sock_udp
 # Additional networking modules that can be dropped if not needed
 USEMODULE += gnrc_icmpv6_echo
 
-# Required for nanocoap server
-USEMODULE += nanocoap_sock
+# Enable nanocoap server
+USEMODULE += nanocoap_server_auto_init
 
 # include this for printing IP addresses
-USEMODULE += shell
-USEMODULE += shell_commands
+USEMODULE += shell_cmds_default
 
 # include riotboot modules
 USEMODULE += riotboot_flashwrite
@@ -46,7 +45,7 @@ ifeq (1,$(USE_ETHOS))
   TERMPROG = $(RIOTTOOLS)/ethos/ethos
   TERMFLAGS = $(TAP) $(PORT)
 else
-  USEMODULE += gnrc_netdev_default
+  USEMODULE += netdev_default
 endif
 
 # Ensure both slot bin files are always generated and linked to avoid compiling

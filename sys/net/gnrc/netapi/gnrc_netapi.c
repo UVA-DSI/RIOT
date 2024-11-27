@@ -85,11 +85,14 @@ static inline int _snd_rcv_mbox(mbox_t *mbox, uint16_t type, gnrc_pktsnip_t *pkt
 int gnrc_netapi_dispatch(gnrc_nettype_t type, uint32_t demux_ctx,
                          uint16_t cmd, gnrc_pktsnip_t *pkt)
 {
+    gnrc_netreg_acquire_shared();
+
     int numof = gnrc_netreg_num(type, demux_ctx);
 
     if (numof != 0) {
         gnrc_netreg_entry_t *sendto = gnrc_netreg_lookup(type, demux_ctx);
 
+        /* the packet is replicated over all interfaces that is's being sent on */
         gnrc_pktbuf_hold(pkt, numof - 1);
 
         while (sendto) {
@@ -133,6 +136,8 @@ int gnrc_netapi_dispatch(gnrc_nettype_t type, uint32_t demux_ctx,
             sendto = gnrc_netreg_getnext(sendto);
         }
     }
+
+    gnrc_netreg_release_shared();
 
     return numof;
 }

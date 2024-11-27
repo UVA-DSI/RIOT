@@ -21,7 +21,7 @@
 #include "saul.h"
 #include "bme680.h"
 #include "bme680_params.h"
-#include "xtimer.h"
+#include "ztimer.h"
 
 extern bme680_t bme680_devs_saul[BME680_NUMOF];
 
@@ -65,7 +65,7 @@ static int _read(int dev)
     if ((drt = bme680_get_duration(&bme680_devs_saul[dev])) < 0) {
         return BME680_INVALID;
     }
-    xtimer_msleep(drt);
+    ztimer_sleep(ZTIMER_MSEC, drt);
 
     bme680_field_data_t data;
     if ((res = bme680_get_data(&bme680_devs_saul[dev], &data)) != BME680_OK) {
@@ -187,24 +187,24 @@ static int read_gas(const void *dev, phydat_t *data)
 
 const saul_driver_t bme680_saul_driver_temperature = {
     .read = read_temp,
-    .write = saul_notsup,
+    .write = saul_write_notsup,
     .type = SAUL_SENSE_TEMP
 };
 
 const saul_driver_t bme680_saul_driver_pressure = {
     .read = read_press,
-    .write = saul_notsup,
+    .write = saul_write_notsup,
     .type = SAUL_SENSE_PRESS
 };
 
 const saul_driver_t bme680_saul_driver_humidity = {
     .read = read_hum,
-    .write = saul_notsup,
+    .write = saul_write_notsup,
     .type = SAUL_SENSE_HUM
 };
 
 const saul_driver_t bme680_saul_driver_gas = {
     .read = read_gas,
-    .write = saul_notsup,
+    .write = saul_write_notsup,
     .type = SAUL_SENSE_GAS
 };

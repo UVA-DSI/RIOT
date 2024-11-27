@@ -54,6 +54,7 @@ class KeaConfig(object):
                 "renew-timer": int(renew_timer),
                 "rebind-timer": int(rebind_timer),
                 "subnet6": [{
+                    "id": 1,
                     "interface": interface,
                     "subnet": "{}/{}".format(prefix, prefix_len),
                     "pd-pools": [{
@@ -113,4 +114,6 @@ class KeaServer(base.DHCPv6Server):
                 # workaround: Arch does not create that directory on first
                 # install
                 os.makedirs("/var/run/kea/")
+        # workaround: Ubuntu does not create that directory automatically
+        os.makedirs("/run/kea/", exist_ok=True)
         super().run()

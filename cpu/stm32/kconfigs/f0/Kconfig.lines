@@ -26,6 +26,7 @@ config CPU_LINE_STM32F030XC
 config CPU_LINE_STM32F031X6
     bool
     select CPU_FAM_F0
+    select HAVE_CLOCK_PLL_PREDIV_HARDWIRED_2
 
 config CPU_LINE_STM32F038XX
     bool
@@ -34,6 +35,7 @@ config CPU_LINE_STM32F038XX
 config CPU_LINE_STM32F042X6
     bool
     select CPU_FAM_F0
+    select HAVE_CLOCK_PLL_PREDIV_HARDWIRED_2
 
 config CPU_LINE_STM32F048XX
     bool

@@ -28,18 +28,20 @@
 
 #include "kernel_defines.h"
 #include "irq.h"
-#ifdef MODULE_PM_LAYERED
+#if MODULE_PM_LAYERED && !MODULE_ZTIMER_ONDEMAND
 #include "pm_layered.h"
 #endif
 #include "ztimer.h"
+#include "log.h"
 
 #define ENABLE_DEBUG 0
 #include "debug.h"
 
 static void _add_entry_to_list(ztimer_clock_t *clock, ztimer_base_t *entry);
-static void _del_entry_from_list(ztimer_clock_t *clock, ztimer_base_t *entry);
+static bool _del_entry_from_list(ztimer_clock_t *clock, ztimer_base_t *entry);
 static void _ztimer_update(ztimer_clock_t *clock);
 static void _ztimer_print(const ztimer_clock_t *clock);
+static uint32_t _ztimer_update_head_offset(ztimer_clock_t *clock);
 
 #ifdef MODULE_ZTIMER_EXTEND
 static inline uint32_t _min_u32(uint32_t a, uint32_t b)
@@ -47,6 +49,68 @@ static inline uint32_t _min_u32(uint32_t a, uint32_t b)
     return a < b ? a : b;
 }
 #endif
+
+#if MODULE_ZTIMER_ONDEMAND
+static bool _ztimer_acquire(ztimer_clock_t *clock)
+{
+    bool first_clock_user = false;
+    unsigned state = irq_disable();
+
+    DEBUG("ztimer_acquire(): %p: %" PRIu16 " user(s)\n",
+          (void *)clock, (uint16_t)(clock->users + 1));
+
+    if (clock->users++ == 0) {
+        if (clock->ops->start) {
+            clock->ops->start(clock);
+        }
+
+        first_clock_user = true;
+    }
+
+    irq_restore(state);
+
+    return first_clock_user;
+}
+
+bool ztimer_acquire(ztimer_clock_t *clock)
+{
+    bool first_clock_user = _ztimer_acquire(clock);
+
+    if (first_clock_user) {
+        /* if the clock just has been enabled, make sure to set possibly
+         * required checkpoints for clock extension */
+        _ztimer_update(clock);
+    }
+
+    return first_clock_user;
+}
+
+bool ztimer_release(ztimer_clock_t *clock)
+{
+    bool no_clock_user_left = false;
+    unsigned state = irq_disable();
+
+    assert(clock->users > 0);
+
+    DEBUG("ztimer_release(): %p: %" PRIu16 " user(s)\n",
+          (void *)clock, (uint16_t)(clock->users - 1));
+
+    if (--clock->users == 0) {
+        /* make sure the timer isn't armed before turning off */
+        clock->ops->cancel(clock);
+
+        if (clock->ops->stop) {
+            clock->ops->stop(clock);
+        }
+
+        no_clock_user_left = true;
+    }
+
+    irq_restore(state);
+
+    return no_clock_user_left;
+}
+#endif /* MODULE_ZTIMER_ONDEMAND */
 
 static unsigned _is_set(const ztimer_clock_t *clock, const ztimer_t *t)
 {
@@ -67,30 +131,56 @@ unsigned ztimer_is_set(const ztimer_clock_t *clock, const ztimer_t *timer)
     return res;
 }
 
-void ztimer_remove(ztimer_clock_t *clock, ztimer_t *timer)
+bool ztimer_remove(ztimer_clock_t *clock, ztimer_t *timer)
 {
+    bool was_removed = false;
+    bool no_clock_user_left = false;
     unsigned state = irq_disable();
 
     if (_is_set(clock, timer)) {
-        ztimer_update_head_offset(clock);
-        _del_entry_from_list(clock, &timer->base);
+        _ztimer_update_head_offset(clock);
+        was_removed = _del_entry_from_list(clock, &timer->base);
 
-        _ztimer_update(clock);
+#if MODULE_ZTIMER_ONDEMAND
+        if (was_removed) {
+            no_clock_user_left = ztimer_release(clock);
+        }
+#endif
+
+        if (!no_clock_user_left) {
+            _ztimer_update(clock);
+        }
     }
 
     irq_restore(state);
+    return was_removed;
 }
 
-void ztimer_set(ztimer_clock_t *clock, ztimer_t *timer, uint32_t val)
+uint32_t ztimer_set(ztimer_clock_t *clock, ztimer_t *timer, uint32_t val)
 {
+    unsigned state = irq_disable();
+
+#if MODULE_ZTIMER_ONDEMAND
+    /* warm up our clock ... */
+    if (_ztimer_acquire(clock) == true) {
+        /* compensate delay that turning on the clock has introduced */
+        if (val > clock->adjust_clock_start) {
+            val -= clock->adjust_clock_start;
+        }
+        else {
+            val = 0;
+        }
+    }
+#endif
+
     DEBUG("ztimer_set(): %p: set %p at %" PRIu32 " offset %" PRIu32 "\n",
           (void *)clock, (void *)timer, clock->ops->now(clock), val);
 
-    unsigned state = irq_disable();
+    uint32_t now = _ztimer_update_head_offset(clock);
 
-    ztimer_update_head_offset(clock);
+    bool was_set = false;
     if (_is_set(clock, timer)) {
-        _del_entry_from_list(clock, &timer->base);
+        was_set = _del_entry_from_list(clock, &timer->base);
     }
 
     /* optionally subtract a configurable adjustment value */
@@ -103,17 +193,24 @@ void ztimer_set(ztimer_clock_t *clock, ztimer_t *timer, uint32_t val)
 
     timer->base.offset = val;
     _add_entry_to_list(clock, &timer->base);
-    if (clock->list.next == &timer->base) {
-#ifdef MODULE_ZTIMER_EXTEND
-        if (clock->max_value < UINT32_MAX) {
-            val = _min_u32(val, clock->max_value >> 1);
-        }
-        DEBUG("ztimer_set(): %p setting %" PRIu32 "\n", (void *)clock, val);
-#endif
-        clock->ops->set(clock, val);
-    }
+    _ztimer_update(clock);
 
     irq_restore(state);
+
+    /* the clock is armed now
+     * everything down below doesn't impact timing */
+
+#if MODULE_ZTIMER_ONDEMAND
+    if (was_set) {
+        /* the given ztimer_t was set in the past
+         * remove the previously set instance */
+        ztimer_release(clock);
+    }
+#else
+    (void)was_set;
+#endif
+
+    return now;
 }
 
 static void _add_entry_to_list(ztimer_clock_t *clock, ztimer_base_t *entry)
@@ -122,7 +219,7 @@ static void _add_entry_to_list(ztimer_clock_t *clock, ztimer_base_t *entry)
 
     ztimer_base_t *list = &clock->list;
 
-#ifdef MODULE_PM_LAYERED
+#if MODULE_PM_LAYERED && !MODULE_ZTIMER_ONDEMAND
     /* First timer on the clock's linked list */
     if (list->next == NULL &&
         clock->block_pm_mode != ZTIMER_CLOCK_NO_REQUIRED_PM_MODE) {
@@ -186,7 +283,7 @@ ztimer_now_t _ztimer_now_extend(ztimer_clock_t *clock)
 }
 #endif /* MODULE_ZTIMER_EXTEND */
 
-void ztimer_update_head_offset(ztimer_clock_t *clock)
+static uint32_t _ztimer_update_head_offset(ztimer_clock_t *clock)
 {
     uint32_t old_base = clock->list.offset;
     uint32_t now = ztimer_now(clock);
@@ -195,7 +292,7 @@ void ztimer_update_head_offset(ztimer_clock_t *clock)
     ztimer_base_t *entry = clock->list.next;
 
     DEBUG(
-        "clock %p: ztimer_update_head_offset(): diff=%" PRIu32 " old head %p\n",
+        "clock %p: _ztimer_update_head_offset(): diff=%" PRIu32 " old head %p\n",
         (void *)clock, diff, (void *)entry);
     if (entry) {
         do {
@@ -215,7 +312,7 @@ void ztimer_update_head_offset(ztimer_clock_t *clock)
             }
         } while (diff && entry);
         DEBUG(
-            "ztimer %p: ztimer_update_head_offset(): now=%" PRIu32 " new head %p",
+            "ztimer %p: _ztimer_update_head_offset(): now=%" PRIu32 " new head %p",
             (void *)clock, now, (void *)entry);
         if (entry) {
             DEBUG(" offset %" PRIu32 "\n", entry->offset);
@@ -226,10 +323,13 @@ void ztimer_update_head_offset(ztimer_clock_t *clock)
     }
 
     clock->list.offset = now;
+    return now;
 }
 
-static void _del_entry_from_list(ztimer_clock_t *clock, ztimer_base_t *entry)
+static bool _del_entry_from_list(ztimer_clock_t *clock, ztimer_base_t *entry)
 {
+    bool was_removed = false;
+
     DEBUG("_del_entry_from_list()\n");
     ztimer_base_t *list = &clock->list;
 
@@ -250,6 +350,7 @@ static void _del_entry_from_list(ztimer_clock_t *clock, ztimer_base_t *entry)
                 list_entry->offset += entry->offset;
             }
 
+            was_removed = true;
             /* reset the entry's next pointer so _is_set() considers it unset */
             entry->next = NULL;
             break;
@@ -257,13 +358,15 @@ static void _del_entry_from_list(ztimer_clock_t *clock, ztimer_base_t *entry)
         list = list->next;
     }
 
-#ifdef MODULE_PM_LAYERED
+#if MODULE_PM_LAYERED && !MODULE_ZTIMER_ONDEMAND
     /* The last timer just got removed from the clock's linked list */
     if (clock->list.next == NULL &&
         clock->block_pm_mode != ZTIMER_CLOCK_NO_REQUIRED_PM_MODE) {
         pm_unblock(clock->block_pm_mode);
     }
 #endif
+
+    return was_removed;
 }
 
 static ztimer_t *_now_next(ztimer_clock_t *clock)
@@ -275,7 +378,7 @@ static ztimer_t *_now_next(ztimer_clock_t *clock)
         if (!entry->next) {
             /* The last timer just got removed from the clock's linked list */
             clock->last = NULL;
-#ifdef MODULE_PM_LAYERED
+#if MODULE_PM_LAYERED && !MODULE_ZTIMER_ONDEMAND
             if (clock->block_pm_mode != ZTIMER_CLOCK_NO_REQUIRED_PM_MODE) {
                 pm_unblock(clock->block_pm_mode);
             }
@@ -313,27 +416,23 @@ static void _ztimer_update(ztimer_clock_t *clock)
             clock->ops->set(clock, clock->list.next->offset);
         }
         else {
-            if (IS_USED(MODULE_ZTIMER_NOW64)) {
-                /* ensure there's at least one ISR per half period */
-                clock->ops->set(clock, clock->max_value >> 1);
-            }
-            else {
-                clock->ops->cancel(clock);
-            }
+            clock->ops->cancel(clock);
         }
     }
 }
 
 void ztimer_handler(ztimer_clock_t *clock)
 {
+    bool no_clock_user_left = false;
+
     DEBUG("ztimer_handler(): %p now=%" PRIu32 "\n", (void *)clock, clock->ops->now(
               clock));
     if (IS_ACTIVE(ENABLE_DEBUG)) {
         _ztimer_print(clock);
     }
 
-#if MODULE_ZTIMER_EXTEND || MODULE_ZTIMER_NOW64
-    if (IS_USED(MODULE_ZTIMER_NOW64) || clock->max_value < UINT32_MAX) {
+#if MODULE_ZTIMER_EXTEND
+    if (clock->max_value < UINT32_MAX) {
         /* calling now triggers checkpointing */
         uint32_t now = ztimer_now(clock);
 
@@ -362,24 +461,36 @@ void ztimer_handler(ztimer_clock_t *clock)
     }
 #endif
 
-    clock->list.offset += clock->list.next->offset;
-    clock->list.next->offset = 0;
+    if (clock->list.next) {
+        clock->list.offset += clock->list.next->offset;
+        clock->list.next->offset = 0;
 
-    ztimer_t *entry = _now_next(clock);
-    while (entry) {
-        DEBUG("ztimer_handler(): trigger %p->%p at %" PRIu32 "\n",
-              (void *)entry, (void *)entry->base.next, clock->ops->now(clock));
-        entry->callback(entry->arg);
-        entry = _now_next(clock);
-        if (!entry) {
-            /* See if any more alarms expired during callback processing */
-            /* This reduces the number of implicit calls to clock->ops->now() */
-            ztimer_update_head_offset(clock);
+        ztimer_t *entry = _now_next(clock);
+        while (entry) {
+            DEBUG("ztimer_handler(): trigger %p->%p at %" PRIu32 "\n",
+                  (void *)entry, (void *)entry->base.next, clock->ops->now(
+                      clock));
+            entry->callback(entry->arg);
+#if MODULE_ZTIMER_ONDEMAND
+            no_clock_user_left = ztimer_release(clock);
+            if (no_clock_user_left) {
+                break;
+            }
+#endif
             entry = _now_next(clock);
+            if (!entry) {
+                /* See if any more alarms expired during callback processing */
+                /* This reduces the number of implicit calls to clock->ops->now() */
+                _ztimer_update_head_offset(clock);
+                entry = _now_next(clock);
+            }
         }
     }
 
-    _ztimer_update(clock);
+    /* only arm the clock if there are users left requiring the clock */
+    if (!no_clock_user_left) {
+        _ztimer_update(clock);
+    }
 
     if (IS_ACTIVE(ENABLE_DEBUG)) {
         _ztimer_print(clock);
@@ -396,7 +507,7 @@ static void _ztimer_print(const ztimer_clock_t *clock)
     uint32_t last_offset = 0;
 
     do {
-        printf("0x%08x:%" PRIu32 "(%" PRIu32 ")%s", (unsigned)entry,
+        printf("0x%08" PRIxPTR ":%" PRIu32 "(%" PRIu32 ")%s", (uintptr_t)entry,
                entry->offset, entry->offset +
                last_offset,
                entry->next ? "->" : (entry == clock->last ? "" : "!"));
@@ -405,3 +516,17 @@ static void _ztimer_print(const ztimer_clock_t *clock)
     } while ((entry = entry->next));
     puts("");
 }
+
+#if MODULE_ZTIMER_ONDEMAND && DEVELHELP
+void _ztimer_assert_clock_active(ztimer_clock_t *clock)
+{
+    if (clock->users == 0) {
+        LOG_WARNING("WARNING! You are accessing ztimer_now() on a non-active clock!\n"
+                    "         Make sure to call ztimer_acquire() before accessing ztimer_now().\n"
+                    "         Once you've finished don't forget to call ztimer_release().\n");
+    }
+#if MODULE_ZTIMER_ONDEMAND_STRICT
+    assert(clock->users > 0);
+#endif
+}
+#endif

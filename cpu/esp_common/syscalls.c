@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdio_ext.h>
 #include <sys/unistd.h>
+#include <sys/reent.h>
 
 #include "irq_arch.h"
 #include "mutex.h"
@@ -49,6 +50,7 @@
  */
 int pthread_setcancelstate(int state, int *oldstate)
 {
+    (void)state;
     if (oldstate) {
         *oldstate = PTHREAD_CANCEL_DISABLE;
     }
@@ -56,23 +58,13 @@ int pthread_setcancelstate(int state, int *oldstate)
 }
 #endif /*  MODULE_PTHREAD */
 
-/*
- * TODO: When the lock functions in this section are enabled, an application
- * crashes when an ISR calls a `newlib` function that uses `_lock_acquire`
- * or `_log_acquire_recursive` to be thread-safe, for example, `puts` in
- * `tests/isr_yield_higher`. The reason is that the implementation of these
- * functions uses `mutex` and `rmutex` that do not work in the interrupt
- * context. Therefore, the lock functions are disabled for the moment, and
- * instead `newlib`'s dummy lock functions are used which do not guarantee
- * thread safety.
- */
-
 /**
  * @name Locking functions
  *
- * Following functions implement the lock mechanism for newlib.
+ * Following functions implement the locking mechanism for newlib.
  */
 
+#ifdef CPU_ESP8266
 /**
  * _malloc_rmtx is defined as static variable to avoid recursive calls of
  * malloc when _malloc_r tries to lock __malloc_lock_object the first
@@ -87,22 +79,122 @@ static rmutex_t _malloc_rmtx = RMUTEX_INIT;
  */
 static _lock_t *__malloc_static_object = NULL;
 
+#define _lock_critical_enter()
+#define _lock_critical_exit()
+
+#else
+
+/* Operations with recursive locking variable operations have to be guarded
+ * for the ESP32x SoCs by disabling interrupts to prevent unwanted context
+ * switches. */
+#define _lock_critical_enter()  uint32_t __lock_state = irq_disable();
+#define _lock_critical_exit()   irq_restore(__lock_state);
+
+#endif
+
 void IRAM_ATTR _lock_init(_lock_t *lock)
 {
-    assert(lock != NULL);
+    assert(lock != NULL);   /* lock must not be NULL */
+
+    /* prevent a context switch between the allocation and the initialization */
+    uint32_t state = irq_disable();
 
     mutex_t* mtx = malloc(sizeof(mutex_t));
-
     if (mtx) {
         memset(mtx, 0, sizeof(mutex_t));
         *lock = (_lock_t)mtx;
     }
+    /* cppcheck-suppress memleak; mtx is stored in lock */
+
+    irq_restore(state);
 }
 
 void IRAM_ATTR _lock_init_recursive(_lock_t *lock)
 {
-    assert(lock != NULL);
+    assert(lock != NULL);   /* lock must not be NULL */
 
+#ifdef CPU_ESP8266
+    /* _malloc_rmtx is static and has not to be allocated */
+    if (lock == __malloc_static_object) {
+        return;
+    }
+#endif
+
+    /* prevent a context switch between the allocation and the initialization */
+    uint32_t state = irq_disable();
+
+    rmutex_t* rmtx = malloc(sizeof(rmutex_t));
+    if (rmtx) {
+        memset(rmtx, 0, sizeof(rmutex_t));
+        *lock = (_lock_t)rmtx;
+    }
+    /* cppcheck-suppress memleak; rmtx is stored in lock */
+
+    irq_restore(state);
+}
+
+void IRAM_ATTR _lock_close(_lock_t *lock)
+{
+    /* locking variable has to be valid and initialized */
+    assert(lock != NULL && *lock != 0);
+#ifdef CPU_ESP8266
+    assert(lock != __malloc_static_object);
+#endif
+
+    /* prevent a context switch between freeing and resetting */
+    uint32_t state = irq_disable();
+
+    free((void*)*lock);
+    *lock = 0;
+
+    irq_restore(state);
+}
+
+void IRAM_ATTR _lock_close_recursive(_lock_t *lock)
+{
+    /* locking variable has to be valid and initialized */
+    assert(lock != NULL && *lock != 0);
+#ifdef CPU_ESP8266
+    assert(lock != __malloc_static_object);
+#endif
+
+    /* prevent a context switch between freeing and resetting */
+    uint32_t state = irq_disable();
+
+    free((void*)*lock);
+    *lock = 0;
+
+    irq_restore(state);
+}
+
+void IRAM_ATTR _lock_acquire(_lock_t *lock)
+{
+    assert(lock != NULL);   /* lock must not be NULL */
+    assert(!irq_is_in());   /* _lock_acquire must not be called in
+                               interrupt context */
+
+    /* if scheduler is not running, we have not to lock the mutex */
+    if (thread_getpid() == KERNEL_PID_UNDEF) {
+        return;
+    }
+
+    /* if the locking variable is not initialized, initialize it implicitly */
+    if (*lock == 0) {
+        _lock_init(lock);
+        assert(*lock != 0);
+    }
+
+    /* disable warning about increasing cast alignment from 4 to 8 via
+     * intermediate cast to uintptr_t */
+    mutex_lock((mutex_t *)(uintptr_t)*lock);
+}
+
+void IRAM_ATTR _lock_acquire_recursive(_lock_t *lock)
+{
+    assert(lock != NULL);   /* lock must not be NULL */
+    assert(!irq_is_in());   /* _lock_acquire must not be called in
+                               interrupt context */
+#ifdef CPU_ESP8266
     /**
      * Since we don't have direct access to newlib's static variable
      * __malloc_lock_object, we have to rely on the fact that function
@@ -116,85 +208,34 @@ void IRAM_ATTR _lock_init_recursive(_lock_t *lock)
         __malloc_static_object = lock;
         return;
     }
-
-    /* _malloc_rmtx is static and has not to be allocated */
-    if (lock == __malloc_static_object) {
-        return;
-    }
-
-    rmutex_t* rmtx = malloc(sizeof(rmutex_t));
-
-    if (rmtx) {
-        memset(rmtx, 0, sizeof(rmutex_t));
-        *lock = (_lock_t)rmtx;
-    }
-}
-
-void IRAM_ATTR _lock_close(_lock_t *lock)
-{
-    assert(lock != NULL);
-    assert(lock != __malloc_static_object);
-
-    free((void*)*lock);
-    *lock = 0;
-}
-
-void IRAM_ATTR _lock_close_recursive(_lock_t *lock)
-{
-    assert(lock != NULL);
-    assert(lock != __malloc_static_object);
-
-    free((void*)*lock);
-    *lock = 0;
-}
-
-void IRAM_ATTR _lock_acquire(_lock_t *lock)
-{
-    assert(lock != NULL);
-
-    /* if the lock data structure is still not allocated, initialize it first */
-    if (*lock == 0) {
-        _lock_init(lock);
-    }
+#endif
 
     /* if scheduler is not running, we have not to lock the mutex */
-    if (thread_get_active() == NULL) {
+    if (thread_getpid() == KERNEL_PID_UNDEF) {
         return;
     }
 
-    assert(!irq_is_in());
-    mutex_lock((mutex_t*)*lock);
-}
-
-void IRAM_ATTR _lock_acquire_recursive(_lock_t *lock)
-{
-    assert(lock != NULL);
-
-    /* if the lock data structure is still not allocated, initialize it first */
+    /* if the locking variable is not initialized, initialize it implicitly */
     if (*lock == 0) {
         _lock_init_recursive(lock);
+        assert(*lock != 0);
     }
 
-    /* if scheduler is not running, we have not to lock the rmutex */
-    if (thread_get_active() == NULL) {
-        return;
-    }
+    _lock_critical_enter();
 
-    assert(!irq_is_in());
-    rmutex_lock((rmutex_t*)*lock);
+    /* disable warning about increasing cast alignment from 4 to 8 via
+     * intermediate cast to uintptr_t */
+    rmutex_lock((rmutex_t *)(uintptr_t)*lock);
+
+    _lock_critical_exit();
 }
 
 int IRAM_ATTR _lock_try_acquire(_lock_t *lock)
 {
-    assert(lock != NULL);
-
-    /* if the lock data structure is still not allocated, initialize it first */
-    if (*lock == 0) {
-        _lock_init(lock);
-    }
+    assert(lock != NULL);   /* lock must not be NULL */
 
     /* if scheduler is not running, we have not to lock the mutex */
-    if (thread_get_active() == NULL) {
+    if (thread_getpid() == KERNEL_PID_UNDEF) {
         return 0;
     }
 
@@ -202,20 +243,23 @@ int IRAM_ATTR _lock_try_acquire(_lock_t *lock)
         return 0;
     }
 
-    return mutex_trylock((mutex_t*)*lock);
+    /* if the locking variable is not initialized, initialize it implicitly */
+    if (*lock == 0) {
+        _lock_init(lock);
+        assert(*lock != 0);
+    }
+
+    /* disable warning about increasing cast alignment from 4 to 8 via
+     * intermediate cast to uintptr_t */
+    return mutex_trylock((mutex_t *)(uintptr_t)*lock);
 }
 
 int IRAM_ATTR _lock_try_acquire_recursive(_lock_t *lock)
 {
-    assert(lock != NULL);
+    assert(lock != NULL);   /* lock must not be NULL */
 
-    /* if the lock data structure is still not allocated, initialize it first */
-    if (*lock == 0) {
-        _lock_init_recursive(lock);
-    }
-
-    /* if scheduler is not running, we have not to lock the rmutex */
-    if (thread_get_active() == NULL) {
+    /* if scheduler is not running, we have not to lock the mutex */
+    if (thread_getpid() == KERNEL_PID_UNDEF) {
         return 0;
     }
 
@@ -223,32 +267,116 @@ int IRAM_ATTR _lock_try_acquire_recursive(_lock_t *lock)
         return 0;
     }
 
-    return rmutex_trylock((rmutex_t*)*lock);
+    /* if the locking variable is not initialized, initialize it implicitly */
+    if (*lock == 0) {
+        _lock_init_recursive(lock);
+        assert(*lock != 0);
+    }
+
+    _lock_critical_enter();
+
+    /* disable warning about increasing cast alignment from 4 to 8 via
+     * intermediate cast to uintptr_t */
+    int res = rmutex_trylock((rmutex_t *)(uintptr_t)*lock);
+
+    _lock_critical_exit();
+
+    return res;
 }
 
 void IRAM_ATTR _lock_release(_lock_t *lock)
 {
-    assert(lock != NULL && *lock != 0);
-
     /* if scheduler is not running, we have not to unlock the mutex */
-    if (thread_get_active() == NULL) {
+    if (thread_getpid() == KERNEL_PID_UNDEF) {
         return;
     }
 
-    mutex_unlock((mutex_t*)*lock);
+    /* the locking variable has to be valid and initialized */
+    assert(lock != NULL && *lock != 0);
+
+    /* disable warning about increasing cast alignment from 4 to 8 via
+     * intermediate cast to uintptr_t */
+    mutex_unlock((mutex_t *)(uintptr_t)*lock);
 }
 
 void IRAM_ATTR _lock_release_recursive(_lock_t *lock)
 {
-    assert(lock != NULL && *lock != 0);
-
-    /* if scheduler is not running, we have not to unlock the rmutex */
-    if (thread_get_active() == NULL) {
+    /* if scheduler is not running, we have not to unlock the mutex */
+    if (thread_getpid() == KERNEL_PID_UNDEF) {
         return;
     }
 
-    rmutex_unlock((rmutex_t*)*lock);
+    /* the locking variable has to be valid and initialized */
+    assert(lock != NULL && *lock != 0);
+
+    _lock_critical_enter();
+
+    /* disable warning about increasing cast alignment from 4 to 8 via
+     * intermediate cast to uintptr_t */
+    rmutex_unlock((rmutex_t *)(uintptr_t)*lock);
+
+    _lock_critical_exit();
 }
+
+#if defined(_RETARGETABLE_LOCKING)
+
+/* check whether `struct __lock` is large enough to hold a recursive mutex */
+static_assert(sizeof(struct __lock) >= sizeof(rmutex_t),
+              "struct __lock is too small to hold a recursive mutex of type rmutex_t");
+
+/* map newlib's `__retarget_*` functions to the existing `_lock_*` functions */
+
+void __retarget_lock_init(_LOCK_T *lock)
+{
+    _lock_init(lock);
+}
+
+extern void __retarget_lock_init_recursive(_LOCK_T *lock)
+{
+    _lock_init_recursive(lock);
+}
+
+void __retarget_lock_close(_LOCK_T lock)
+{
+    _lock_close(&lock);
+}
+
+void __retarget_lock_close_recursive(_LOCK_T lock)
+{
+    _lock_close_recursive(&lock);
+}
+
+void __retarget_lock_acquire(_LOCK_T lock)
+{
+    _lock_acquire(&lock);
+}
+
+void __retarget_lock_acquire_recursive(_LOCK_T lock)
+{
+    _lock_acquire_recursive(&lock);
+}
+
+int __retarget_lock_try_acquire(_LOCK_T lock)
+{
+    return _lock_try_acquire(&lock);
+}
+
+int __retarget_lock_try_acquire_recursive(_LOCK_T lock)
+{
+    return _lock_try_acquire_recursive(&lock);
+}
+
+void __retarget_lock_release(_LOCK_T lock)
+{
+    _lock_release(&lock);
+}
+
+void __retarget_lock_release_recursive(_LOCK_T lock)
+{
+    _lock_release(&lock);
+}
+
+#endif /* _RETARGETABLE_LOCKING */
 
 /**
  * @name Memory allocation functions
@@ -257,7 +385,7 @@ void IRAM_ATTR _lock_release_recursive(_lock_t *lock)
 #ifdef MODULE_ESP_IDF_HEAP
 
 #define heap_caps_malloc_default(s)         heap_caps_malloc(s, MALLOC_CAP_DEFAULT)
-#define heap_caps_realloc_default(p,s)      heap_caps_realloc(p, s, MALLOC_CAP_DEFAULT)
+#define heap_caps_realloc_default(p, s)     heap_caps_realloc(p, s, MALLOC_CAP_DEFAULT)
 
 void* IRAM_ATTR __wrap__malloc_r(struct _reent *r, size_t size)
 {
@@ -282,14 +410,14 @@ void* IRAM_ATTR __wrap__calloc_r(struct _reent *r, size_t count, size_t size)
     }
     void *result = heap_caps_malloc_default(size_total);
     if (result) {
-        bzero(result, size_total);
+        memset(result, 0, size_total);
     }
     return result;
 }
 
 #else /* MODULE_ESP_IDF_HEAP */
 
-void *__wrap_calloc(size_t nmemb, size_t size)
+void* IRAM_ATTR __wrap__calloc_r(struct _reent *r, size_t nmemb, size_t size)
 {
     /* The xtensa support has not yet upstreamed to newlib. Hence, the fixed
      * calloc implementation of newlib >= 4.0.0 is not available to the ESP
@@ -299,7 +427,7 @@ void *__wrap_calloc(size_t nmemb, size_t size)
         return NULL;
     }
 
-    void *res = malloc(total_size);
+    void *res = _malloc_r(r, total_size);
 
     if (res) {
         memset(res, 0, total_size);
@@ -310,25 +438,48 @@ void *__wrap_calloc(size_t nmemb, size_t size)
 
 /* for compatibility with ESP-IDF heap functions */
 
+#ifndef CPU_ESP8266
+void* heap_caps_malloc(size_t size, uint32_t caps, const char *file, size_t line)
+                       __attribute__((alias("_heap_caps_malloc")));
+void* heap_caps_calloc(size_t n, size_t size, uint32_t caps, const char *file, size_t line)
+                       __attribute__((alias("_heap_caps_calloc")));
+void* heap_caps_realloc(void *ptr, size_t size, uint32_t caps, const char *file, size_t line)
+                        __attribute__((alias("_heap_caps_realloc")));
+void *heap_caps_zalloc(size_t size, uint32_t caps, const char *file, size_t line)
+                       __attribute__((alias("_heap_caps_zalloc")));
+void heap_caps_free(void *ptr, const char *file, size_t line)
+                    __attribute__((alias("_heap_caps_free")));
+#endif
+
 void* _heap_caps_malloc(size_t size, uint32_t caps, const char *file, size_t line)
 {
     (void)caps;
+    (void)file;
+    (void)line;
     return malloc(size);
 }
 
 void* _heap_caps_calloc(size_t n, size_t size, uint32_t caps, const char *file, size_t line)
 {
     (void)caps;
+    (void)file;
+    (void)line;
     return calloc(n, size);
 }
 
 void* _heap_caps_realloc(void *ptr, size_t size, uint32_t caps, const char *file, size_t line)
 {
+    (void)caps;
+    (void)file;
+    (void)line;
     return realloc(ptr, size);
 }
 
 void *_heap_caps_zalloc(size_t size, uint32_t caps, const char *file, size_t line)
 {
+    (void)caps;
+    (void)file;
+    (void)line;
     void *ptr = malloc(size);
     if (ptr)  {
         memset(ptr, 0, size);
@@ -362,7 +513,8 @@ extern uint8_t _eheap3;
 unsigned int IRAM_ATTR get_free_heap_size(void)
 {
     struct mallinfo minfo = mallinfo();
-    unsigned int heap_size = &_eheap - &_sheap;
+    /* cppcheck-suppress comparePointers */
+    uintptr_t heap_size = (uintptr_t)&_eheap - (uintptr_t)&_sheap;
 #if NUM_HEAPS > 1
     heap_size += &_eheap1 - &_sheap1;
 #endif
@@ -377,6 +529,7 @@ unsigned int IRAM_ATTR get_free_heap_size(void)
 
 /* alias for compatibility with espressif/wifi_libs */
 uint32_t esp_get_free_heap_size( void ) __attribute__((alias("get_free_heap_size")));
+uint32_t esp_get_free_internal_heap_size( void ) __attribute__((alias("get_free_heap_size")));
 
 #endif /* MODULE_ESP_IDF_HEAP */
 
@@ -384,18 +537,40 @@ uint32_t esp_get_free_heap_size( void ) __attribute__((alias("get_free_heap_size
  * @name Other system functions
  */
 
+int _rename_r(struct _reent *r, const char *from, const char *to)
+{
+    (void)r;
+    (void)from;
+    (void)to;
+    return 0;
+}
+
 struct _reent* __getreent(void) {
     return _GLOBAL_REENT;
 }
 
+/* in older versions of newlib, the OS has to allocate a reentry structure */
+#ifndef __ATTRIBUTE_IMPURE_DATA__
 static struct _reent s_reent;
+#endif
 
 void syscalls_init(void)
 {
     extern void syscalls_init_arch(void);
     syscalls_init_arch();
 
+    /* _GLOBAL_REENT is a pointer to the reentry structure. In older versions
+     * of newlib, the OS has to allocate a reentry structure and update
+     * _GLOBAL_REENT to point to that. In more recent versions, the allocation
+     * is done by newlib. We use a macro introduced by the commit to detect
+     * which flavor is used:
+     *
+     * See https://github.com/espressif/newlib-esp32/commit/ad51d0006a0aaf17aa61ec34221add09bfe01f0c
+     * for the commit that introduced the change.
+     */
+#ifndef __ATTRIBUTE_IMPURE_DATA__
     _GLOBAL_REENT = &s_reent;
+#endif
 
     environ = malloc(sizeof(char*));
     environ[0] = NULL;

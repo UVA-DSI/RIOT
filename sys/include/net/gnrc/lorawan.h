@@ -24,6 +24,7 @@
 #define NET_GNRC_LORAWAN_H
 
 #include "gnrc_lorawan_internal.h"
+#include "assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -198,10 +199,10 @@ void gnrc_lorawan_timeout_cb(gnrc_lorawan_t *mac);
  * @brief Init GNRC LoRaWAN
  *
  * @param[in] mac pointer to the MAC descriptor
- * @param[in] nwkskey buffer to store the NwkSKey. Should be at least 16 bytes long
- * @param[in] appskey buffer to store the AppsKey. Should be at least 16 bytes long
+ * @param[in] joineui pointer to Join EUI
+ * @param[in] ctx pointer to LoRaWAN context
  */
-void gnrc_lorawan_init(gnrc_lorawan_t *mac, uint8_t *nwkskey, uint8_t *appskey);
+void gnrc_lorawan_init(gnrc_lorawan_t *mac, uint8_t *joineui, const gnrc_lorawan_key_ctx_t *ctx);
 
 /**
  * @brief Perform a MLME request
@@ -319,6 +320,21 @@ void gnrc_lorawan_set_timer(gnrc_lorawan_t *mac, uint32_t us);
  * @param[in] mac pointer to the MAC descriptor
  */
 void gnrc_lorawan_remove_timer(gnrc_lorawan_t *mac);
+
+/**
+ * @brief Set unconfirmed uplink redundancy
+ *
+ * @pre   @p redundancy <= 14
+ *
+ * @param[in] mac pointer to the MAC descriptor
+ * @param[in] redundancy number of unconfirmed uplink retransmissions
+ */
+static inline void gnrc_lorawan_set_uncnf_redundancy(gnrc_lorawan_t *mac,
+                                                     uint8_t redundancy)
+{
+    assert(redundancy <= (0xF - 1));
+    mac->mcps.redundancy = redundancy;
+}
 
 #ifdef __cplusplus
 }

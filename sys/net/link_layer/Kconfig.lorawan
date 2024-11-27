@@ -1,22 +1,5 @@
-# Copyright (c) 2020 Freie Universitaet Berlin
-#
-# This file is subject to the terms and conditions of the GNU Lesser
-# General Public License v2.1. See the file LICENSE in the top level
-# directory for more details.
-#
-config HAVE_LORAWAN
-    bool
-    help
-        Indicates that LoRaWAN support is present.
-
-menuconfig KCONFIG_USEMODULE_LORAWAN
-    bool "Configure LoRaWAN MAC"
-    depends on HAVE_LORAWAN
-    help
-        Configure LoRaWAN module using Kconfig. This may override configurations
-        in LoRa PHY.
-
-if KCONFIG_USEMODULE_LORAWAN
+menu "LoRaWAN MAC"
+    depends on USEMODULE_LORAWAN
 
 choice
     bool "Channel plan"
@@ -89,7 +72,7 @@ config LORAMAC_DEFAULT_JOIN_PROCEDURE_ABP
 
 endchoice
 
-if USEMODULE_GNRC_LORAWAN || USEPKG_SEMTECH_LORAMAC
+if (USEMODULE_GNRC_LORAWAN || USEPKG_SEMTECH_LORAMAC)
 
 menu "OTAA credentials"
 
@@ -99,17 +82,37 @@ config LORAMAC_DEV_EUI_DEFAULT
     help
         Configure the default device EUI for join procedure.
 
+config LORAMAC_APP_KEY_DEFAULT
+    string "Application key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default application key for join procedure.
+
+if USEMODULE_GNRC_LORAWAN_1_1
+
+config LORAMAC_JOIN_EUI_DEFAULT
+    string "Join EUI"
+    default "0000000000000000"
+    help
+        Configure the default join EUI for join procedure.
+
+config LORAMAC_NWK_KEY_DEFAULT
+    string "Network key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default network key for join procedure.
+
+endif # GNRC_LORAWAN_1_1
+
+if !USEMODULE_GNRC_LORAWAN_1_1
+
 config LORAMAC_APP_EUI_DEFAULT
     string "Application EUI"
     default "0000000000000000"
     help
         Configure the default application EUI for join procedure.
 
-config LORAMAC_APP_KEY_DEFAULT
-    string "Application key"
-    default "00000000000000000000000000000000"
-    help
-        Configure the default application key for join procedure.
+endif # !USEMODULE_GNRC_LORAWAN_1_1
 
 endmenu # OTAA credentials
 
@@ -125,17 +128,49 @@ config LORAMAC_DEV_ADDR_DEFAULT
     help
         Configure the default device address for ABP.
 
-config LORAMAC_NWK_SKEY_DEFAULT
-    string "Network session key"
-    default "00000000000000000000000000000000"
-    help
-        Configure the default network session key for ABP.
-
 config LORAMAC_APP_SKEY_DEFAULT
     string "Application session key"
     default "00000000000000000000000000000000"
     help
         Configure the default application session key for ABP.
+
+if USEMODULE_GNRC_LORAWAN_1_1
+
+config LORAMAC_FNWKSINT_KEY_DEFAULT
+    string "Forwarding network session integrity key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default forwarding network session integrity key for ABP.
+
+config LORAMAC_SNWKSINT_KEY_DEFAULT
+    string "Serving network session integrity key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default serving network session integrity key for ABP.
+
+config LORAMAC_NWKSENC_KEY_DEFAULT
+    string "Network session encryption key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default network session encryption key for ABP.
+
+config LORAMAC_NWK_KEY_DEFAULT
+    string "Network key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default network key for ABP.
+
+endif # USEMODULE_GNRC_LORAWAN_1_1
+
+if !USEMODULE_GNRC_LORAWAN_1_1
+
+    config LORAMAC_NWK_SKEY_DEFAULT
+    string "Network session key"
+    default "00000000000000000000000000000000"
+    help
+        Configure the default network session key for ABP.
+
+endif # !USEMODULE_GNRC_LORAWAN_1_1
 
 endmenu # ABP credentials
 
@@ -524,4 +559,16 @@ config LORAMAC_DEFAULT_MIN_RX_SYMBOLS
         system timer. Refer SX1276_settings_for_LoRaWAN_v2p2.pdf
         (AN1200.24) from Semtech for more information.
 
-endif # KCONFIG_USEMODULE_LORAWAN
+config LORAMAC_DEFAULT_REDUNDANCY
+    int "Default redundancy for unconfirmed uplinks"
+    depends on USEMODULE_GNRC_LORAWAN
+    default 0
+    range 0 14
+    help
+         This corresponds to the number of unconfirmed
+         uplink retransmissions when using ADR. This
+         configuration does not affect confirmed uplinks.
+         By default, uplinks are sent without retransmissions
+         (this means, the device sends only one uplink packet)
+
+endmenu # LoRaWAN MAC

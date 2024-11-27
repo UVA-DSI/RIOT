@@ -13,6 +13,7 @@
  * @file
  * @author      Gunar Schorcht <gunar@schorcht.net>
  * @author      Erik Ekman <eekman@google.com>
+ * @{
  */
 
 #ifndef PERIPH_CONF_H
@@ -39,11 +40,13 @@
 #ifndef ADC_GPIOS
 #define ADC_GPIOS   { GPIO34, GPIO35, GPIO36, GPIO39 }
 #endif
+/** @} */
 
 /**
- * @brief   Declaration of GPIOs that can be used as DAC channels
+ * @name    Declaration of GPIOs that can be used as DAC channels
  *
  * ESP32-Ethernet-Kit has no GPIOs left that might be used as DAC channels.
+ * @{
  */
 #ifndef DAC_GPIOS
 #define DAC_GPIOS   { }
@@ -87,10 +90,6 @@
 #endif
 #endif /* PWM0_GPIOS */
 
-/** PWM_DEV(1) is not used */
-#ifndef PWM1_GPIOS
-#define PWM1_GPIOS  { }
-#endif
 /** @} */
 
 /**
@@ -124,7 +123,6 @@
 #define UART0_TXD   GPIO1  /**< direct I/O pin for UART_DEV(0) TxD, can't be changed */
 #define UART0_RXD   GPIO3  /**< direct I/O pin for UART_DEV(0) RxD, can't be changed */
 /** @} */
-
 
 #ifdef __cplusplus
 } /* end extern "C" */

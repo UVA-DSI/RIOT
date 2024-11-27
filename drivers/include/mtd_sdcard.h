@@ -7,14 +7,14 @@
  */
 
 /**
- * @defgroup    drivers_mtd_sdcard mtd wrapper for sdcard_spi
+ * @defgroup    drivers_mtd_sdcard MTD wrapper for SPI SD Cards
  * @ingroup     drivers_storage
- * @brief       Driver for SD-cards using mtd interface
+ * @brief       Driver for SPI SD Cards using the MTD interface
  *
  * @{
  *
  * @file
- * @brief       Interface definition for mtd_sdcard driver
+ * @brief       Interface definition for the mtd_sdcard driver
  *
  * @author      Michel Rottleuthner <michel.rottleuthner@haw-hamburg.de>
  */
@@ -55,7 +55,8 @@ typedef struct {
  *          the sector first.
  *          Attention: an erase call will therefore NOT touch the content,
  *          so enable this feature to ensure overriding the data.
- *          This feature is currently not supported.
+ *
+ *          This feature requires the `mtd_write_page` module.
  */
 #ifdef DOXYGEN
 #define CONFIG_MTD_SDCARD_ERASE

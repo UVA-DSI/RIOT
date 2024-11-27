@@ -43,32 +43,41 @@ static void _ztimer_periodic_reset(ztimer_periodic_t *timer, ztimer_now_t now)
 static void _ztimer_periodic_callback(void *arg)
 {
     ztimer_periodic_t *timer = arg;
-    ztimer_now_t now = ztimer_now(timer->clock);
 
     if (timer->callback(timer->arg) == ZTIMER_PERIODIC_KEEP_GOING) {
+        ztimer_now_t now = ztimer_now(timer->clock);
         _ztimer_periodic_reset(timer, now);
+    }
+    else {
+        timer->last = timer->last + timer->interval;
     }
 }
 
 void ztimer_periodic_init(ztimer_clock_t *clock, ztimer_periodic_t *timer,
-                          int (*callback)(
-                              void *), void *arg, uint32_t interval)
+                          bool (*callback)(void *), void *arg, uint32_t interval)
 {
-    *timer =
-        (ztimer_periodic_t){ .clock = clock, .interval = interval,
-                             .callback = callback, .arg = arg,
-                             .timer = {
-                                 .callback = _ztimer_periodic_callback,
-                                 .arg = timer
-                             } };
+    /* check if this is a reinit, ensure timer is stopped in case */
+    if (timer->timer.callback == _ztimer_periodic_callback) {
+        ztimer_periodic_stop(timer);
+    }
+    *timer = (ztimer_periodic_t){
+        .clock = clock, .interval = interval,
+        .callback = callback, .arg = arg,
+        .timer = {
+            .callback = _ztimer_periodic_callback,
+            .arg = timer
+        }
+    };
 }
 
 void ztimer_periodic_start(ztimer_periodic_t *timer)
 {
-    uint32_t now = ztimer_now(timer->clock);
+    timer->last = ztimer_set(timer->clock, &timer->timer, timer->interval) + timer->interval;
+}
 
-    timer->last = now;
-    _ztimer_periodic_reset(timer, now);
+void ztimer_periodic_start_now(ztimer_periodic_t *timer)
+{
+    timer->last = ztimer_set(timer->clock, &timer->timer, 0);
 }
 
 void ztimer_periodic_stop(ztimer_periodic_t *timer)

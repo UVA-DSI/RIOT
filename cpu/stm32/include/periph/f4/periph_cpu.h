@@ -32,7 +32,8 @@ extern "C" {
 #define ADC_DEVS            (1U)
 #elif defined(CPU_LINE_STM32F405xx)  || defined(CPU_LINE_STM32F407xx) \
     || defined(CPU_LINE_STM32F415xx) || defined(CPU_LINE_STM32F429xx) \
-    || defined(CPU_LINE_STM32F437xx) || defined(CPU_LINE_STM32F446xx)
+    || defined(CPU_LINE_STM32F439xx) || defined(CPU_LINE_STM32F437xx) \
+    || defined(CPU_LINE_STM32F446xx) || defined(CPU_LINE_STM32F469xx)
 #define ADC_DEVS            (3U)
 #endif
 
@@ -49,6 +50,12 @@ extern "C" {
 #endif
 
 /**
+ * @brief   Readout Protection (RDP) option bytes
+ */
+#define STM32_OPTION_BYTES   ((uint32_t*) 0x1FFFC000)
+#define GET_RDP(x) ((x & 0xFF00) >> 8)
+
+/**
  * @brief   Override the ADC resolution configuration
  * @{
  */
@@ -62,6 +69,15 @@ typedef enum {
     ADC_RES_16BIT = 2               /**< ADC resolution: 16 bit (not supported)*/
 } adc_res_t;
 /** @} */
+
+/**
+ * @name   Constants for internal VBAT ADC line
+ * @{
+ */
+#define VBAT_ADC_RES        ADC_RES_12BIT
+#define VBAT_ADC_MAX        4095
+/** @} */
+
 #endif /* ndef DOXYGEN */
 
 #ifdef __cplusplus

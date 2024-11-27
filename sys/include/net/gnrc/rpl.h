@@ -143,7 +143,7 @@
 
 #include <string.h>
 #include <stdint.h>
-#include "kernel_defines.h"
+#include "modules.h"
 #include "net/gnrc.h"
 #include "net/gnrc/ipv6.h"
 #include "net/ipv6/addr.h"
@@ -433,7 +433,6 @@ static inline bool GNRC_RPL_COUNTER_GREATER_THAN(uint8_t A, uint8_t B)
 #define GNRC_RPL_LEAF_NODE (2)
 /** @} */
 
-
 /**
  * @name RPL Control Message Options
  *  @see <a href="https://tools.ietf.org/html/rfc6550#section-6.7">
@@ -541,7 +540,17 @@ extern const ipv6_addr_t ipv6_addr_all_rpl_nodes;
 
 #ifdef MODULE_NETSTATS_RPL
 /**
- * @brief Statistics for RPL control messages
+ * @brief   Statistics for RPL control messages
+ * @warning Access to this structure need to be synchronized with the RPL
+ *          thread to avoid reading corrupted valued. The RPL thread will
+ *          disable IRQs while updating the fields. A reader that disables
+ *          IRQs while reading values from here will read back correct and
+ *          consistent values.
+ * @details Note that on 32 bit platforms reading individual fields usually is
+ *          safe without locking, as a 32 bit read typically is an atomic
+ *          operation. However, reasoning about e.g. the relation between TX
+ *          packets and TX bytes will still require IRQs disabled, as the stats
+ *          could be updated between the two reads even on 32 bit platforms.
  */
 extern netstats_rpl_t gnrc_rpl_netstats;
 #endif
@@ -583,7 +592,7 @@ kernel_pid_t gnrc_rpl_init(kernel_pid_t if_pid);
  * @return  Pointer to the new RPL Instance, on success.
  * @return  NULL, otherwise.
  */
-gnrc_rpl_instance_t *gnrc_rpl_root_init(uint8_t instance_id, ipv6_addr_t *dodag_id,
+gnrc_rpl_instance_t *gnrc_rpl_root_init(uint8_t instance_id, const ipv6_addr_t *dodag_id,
                                         bool gen_inst_id, bool local_inst_id);
 
 /**
@@ -695,7 +704,7 @@ void gnrc_rpl_long_delay_dao(gnrc_rpl_dodag_t *dodag);
  * @return  Pointer to the new RPL instance, on success.
  * @return  NULL, otherwise.
  */
-gnrc_rpl_instance_t *gnrc_rpl_root_instance_init(uint8_t instance_id, ipv6_addr_t *dodag_id,
+gnrc_rpl_instance_t *gnrc_rpl_root_instance_init(uint8_t instance_id, const ipv6_addr_t *dodag_id,
                                                  uint8_t mop);
 
 /**
@@ -735,6 +744,18 @@ static inline void gnrc_rpl_config_pio(gnrc_rpl_dodag_t *dodag, bool status)
                           (status << GNRC_RPL_REQ_DIO_OPT_PREFIX_INFO_SHIFT);
     }
 }
+
+#if IS_USED(MODULE_GNRC_RPL) || DOXYGEN
+/**
+ * @brief Convenience function to start a RPL root using the default configuration.
+ *
+ * @param[in] netif             Network interface to use as RPL root
+ * @param[in] dodag_id          Id of the DODAG
+ */
+void gnrc_rpl_configure_root(gnrc_netif_t *netif, const ipv6_addr_t *dodag_id);
+#else
+#define gnrc_rpl_configure_root(netif, dodag_id)  ((void)netif)
+#endif
 
 #ifdef __cplusplus
 }

@@ -8,13 +8,23 @@
 # General Public License v2.1. See the file LICENSE in the top level
 # directory for more details.
 
-RIOTBASE="$(cd $(dirname $0)/../../..; pwd)"
+# If we don't find this scripts directory, does it really make sense to exit? So
+# shellcheck disable=SC2164
+SCRIPTDIR="$(cd "$(dirname "$0")"; pwd)"
+RIOTBASE="$(cd "${SCRIPTDIR}"/../../..; pwd)"
+EXCLUDE_SIMPLE_FILE="${SCRIPTDIR}/exclude_simple"
+EXCLUDE_PATTERN_FILE="${SCRIPTDIR}/exclude_patterns"
+GENERIC_EXCLUDE_PATTERN_FILE="${SCRIPTDIR}/generic_exclude_patterns"
 
-. ${RIOTBASE}/dist/tools/ci/github_annotate.sh
+if [[ -z ${DOCUMENTATION_FORMAT+x} ]]; then
+export DOCUMENTATION_FORMAT=check
+fi
+
+. "${RIOTBASE}"/dist/tools/ci/github_annotate.sh
 
 github_annotate_setup
 
-if tput colors &> /dev/null && [ $(tput colors) -ge 8 ]; then
+if tput colors &> /dev/null && [ "$(tput colors)" -ge 8 ]; then
     CERROR="\e[1;31m"
     CWARN="\033[1;33m"
     CRESET="\e[0m"
@@ -23,11 +33,10 @@ else
     CWARN=
     CRESET=
 fi
-
-DOXY_OUTPUT=$(make -C "${RIOTBASE}" doc 2>&1)
+DOXY_OUTPUT=$(make -C "${RIOTBASE}" doc 2>&1| grep -Fvf "${EXCLUDE_SIMPLE_FILE}" )
+DOXY_OUTPUT=$(echo "${DOXY_OUTPUT}" | grep -Evf "${EXCLUDE_PATTERN_FILE}" | grep -Evf "${GENERIC_EXCLUDE_PATTERN_FILE}")
 DOXY_ERRCODE=$?
 RESULT=0
-
 
 if [ "${DOXY_ERRCODE}" -ne 0 ] ; then
     echo "'make doc' exited with non-zero code (${DOXY_ERRCODE})"
@@ -37,6 +46,9 @@ else
     ERRORS=$(echo "${DOXY_OUTPUT}" | grep '.*warning' | sed "s#${PWD}/\([^:]*\)#\1#g")
     if [ -n "${ERRORS}" ] ; then
         if github_annotate_is_on; then
+            # We want to see backslashes here to escape e.g. newlines in
+            # github_annotate_error
+            # shellcheck disable=SC2162
             echo "${ERRORS}" | grep "^.\+:[0-9]\+: warning:" | while read error_line
             do
                 FILENAME=$(echo "${error_line}" | cut -d: -f1)
@@ -45,6 +57,8 @@ else
                           sed -e 's/^[ \t]*//' -e 's/[ \t]*$//')
                 github_annotate_error "${FILENAME}" "${LINENR}" "${DETAILS}"
             done
+            # show errors not matching the pattern above
+            echo "${ERRORS}" | grep -v "^.\+:[0-9]\+: warning:"
         else
             echo -e "${CERROR}ERROR: Doxygen generates the following warnings:${CRESET}"
             echo "${ERRORS}"
@@ -59,8 +73,8 @@ exclude_filter() {
 
 # Check groups are correctly defined (e.g. no undefined groups and no group
 # defined multiple times)
-ALL_RAW_DEFGROUP=$(git grep -n @defgroup -- '*.h' '*.c' '*.txt' | exclude_filter)
-ALL_RAW_INGROUP=$(git grep -n '@ingroup' -- '*.h' '*.c' '*.txt' | exclude_filter)
+ALL_RAW_DEFGROUP=$(git grep -n @defgroup -- '*.h' '*.hpp' '*.txt' 'makefiles/pseudomodules.inc.mk' 'sys/net/gnrc/routing/ipv6_auto_subnets/gnrc_ipv6_auto_subnets.c'| exclude_filter)
+ALL_RAW_INGROUP=$(git grep -n '@ingroup' -- '*.h' '*.hpp' '*.txt' 'makefiles/pseudomodules.inc.mk' 'sys/net/gnrc/routing/ipv6_auto_subnets/gnrc_ipv6_auto_subnets.c'| exclude_filter)
 DEFINED_GROUPS=$(echo "${ALL_RAW_DEFGROUP}" | \
                     grep -oE '@defgroup[ ]+[^ ]+' | \
                     grep -oE '[^ ]+$' | \
@@ -90,10 +104,13 @@ then
     do
         INGROUPS=$(echo "${ALL_RAW_INGROUP}" | grep "\<${group}\>$" | sort -u)
         if github_annotate_is_on; then
+            # We want to see backslashes here to escape e.g. newlines in
+            # github_annotate_error
+            # shellcheck disable=SC2162
             echo "${INGROUPS}" | while read ingroup;
             do
                 github_annotate_error \
-                    $(echo ${ingroup} | awk -F: '{ print $1,$2 }') \
+                    "$(echo "${ingroup}" | awk -F: '{ print $1,$2 }')" \
                     "Undefined doxygen group '${group}'"
             done
         else
@@ -124,9 +141,12 @@ then
             grep "\<${group}\>$" | sort -u)
         DEFGROUPFILES=$(echo "${DEFGROUPS}" | awk -F: '{ print "\t" $1 }')
         if github_annotate_is_on; then
+            # We want to see backslashes here to escape e.g. newlines in
+            # github_annotate_error
+            # shellcheck disable=SC2162
             echo "${DEFGROUPS}" | while read defgroup;
             do
-                github_annotate_error $(echo ${defgroup} | awk -F: '{ print $1,$2 }') \
+                github_annotate_error "$(echo "${defgroup}" | awk -F: '{ print $1,$2 }')" \
                     "Multiple doxygen group definitions of '${group}' in\n${DEFGROUPFILES}"
             done
         else

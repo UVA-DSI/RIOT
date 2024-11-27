@@ -2,11 +2,20 @@
 ifneq (,$(filter asymcute,$(USEMODULE)))
   DIRS += net/application_layer/asymcute
 endif
+ifneq (,$(filter benchmark_udp,$(USEMODULE)))
+  DIRS += test_utils/benchmark_udp
+endif
+ifneq (,$(filter bhp,$(USEMODULE)))
+  DIRS += bhp
+endif
 ifneq (,$(filter bluetil_%,$(USEMODULE)))
   DIRS += net/ble/bluetil
 endif
 ifneq (,$(filter cipher_modes,$(USEMODULE)))
   DIRS += crypto/modes
+endif
+ifneq (,$(filter telnet,$(USEMODULE)))
+  DIRS += net/application_layer/telnet
 endif
 ifneq (,$(filter constfs,$(USEMODULE)))
   DIRS += fs/constfs
@@ -37,6 +46,12 @@ ifneq (,$(filter devfs,$(USEMODULE)))
 endif
 ifneq (,$(filter dhcpv6,$(USEMODULE)))
   DIRS += net/application_layer/dhcpv6
+endif
+ifneq (,$(filter dns,$(USEMODULE)))
+  DIRS += net/application_layer/dns
+endif
+ifneq (,$(filter dsm,$(USEMODULE)))
+  DIRS += net/dsm
 endif
 ifneq (,$(filter dummy_thread,$(USEMODULE)))
   DIRS += test_utils/dummy_thread
@@ -86,11 +101,11 @@ endif
 ifneq (,$(filter l2filter,$(USEMODULE)))
   DIRS += net/link_layer/l2filter
 endif
+ifneq (,$(filter l2scan_list,$(USEMODULE)))
+  DIRS += net/link_layer/l2scan_list
+endif
 ifneq (,$(filter l2util,$(USEMODULE)))
   DIRS += net/link_layer/l2util
-endif
-ifneq (,$(filter log_%,$(USEMODULE)))
-  DIRS += log
 endif
 ifneq (,$(filter nanocoap,$(USEMODULE)))
   DIRS += net/application_layer/nanocoap
@@ -110,6 +125,9 @@ endif
 ifneq (,$(filter netstats_neighbor,$(USEMODULE)))
   DIRS += net/netstats
 endif
+ifneq (,$(filter netutils,$(USEMODULE)))
+  DIRS += net/netutils
+endif
 ifneq (,$(filter sema,$(USEMODULE)))
   DIRS += sema
 endif
@@ -126,7 +144,13 @@ ifneq (,$(filter sock_async_event,$(USEMODULE)))
   DIRS += net/sock/async/event
 endif
 ifneq (,$(filter sock_dns,$(USEMODULE)))
-  DIRS += net/application_layer/dns
+  DIRS += net/application_layer/sock_dns
+endif
+ifneq (,$(filter sock_dns_mock,$(USEMODULE)))
+  DIRS += net/application_layer/sock_dns_mock
+endif
+ifneq (,$(filter sock_dodtls,$(USEMODULE)))
+  DIRS += net/application_layer/sock_dodtls
 endif
 ifneq (,$(filter sock_util,$(USEMODULE)))
   DIRS += net/sock
@@ -149,8 +173,14 @@ endif
 ifneq (,$(filter posix_sleep,$(USEMODULE)))
   DIRS += posix/sleep
 endif
+ifneq (,$(filter psa_crypto,$(USEMODULE)))
+    DIRS += psa_crypto
+endif
 ifneq (,$(filter pthread,$(USEMODULE)))
   DIRS += posix/pthread
+endif
+ifneq (,$(filter preprocessor_%,$(USEMODULE)))
+  DIRS += preprocessor
 endif
 ifneq (,$(filter routing,$(USEMODULE)))
   DIRS += net/routing
@@ -158,8 +188,8 @@ endif
 ifneq (,$(filter skald,$(USEMODULE)))
   DIRS += net/ble/skald
 endif
-ifneq (,$(filter shell_commands,$(USEMODULE)))
-  DIRS += shell/commands
+ifneq (,$(filter shell_cmds,$(USEMODULE)))
+  DIRS += shell/cmds
 endif
 ifneq (,$(filter suit%,$(USEMODULE)))
   DIRS += suit
@@ -173,8 +203,20 @@ endif
 ifneq (,$(filter test_utils_interactive_sync,$(USEMODULE)))
   DIRS += test_utils/interactive_sync
 endif
+ifneq (,$(filter test_utils_netdev_eth_minimal,$(USEMODULE)))
+  DIRS += test_utils/netdev_eth_minimal
+endif
+ifneq (,$(filter test_utils_netdev_ieee802154_minimal,$(USEMODULE)))
+  DIRS += test_utils/netdev_ieee802154_minimal
+endif
+ifneq (,$(filter test_utils_print_stack_usage,$(USEMODULE)))
+  DIRS += test_utils/print_stack_usage
+endif
 ifneq (,$(filter test_utils_result_output,$(USEMODULE)))
   DIRS += test_utils/result_output
+endif
+ifneq (,$(filter tiny_strerror,$(USEMODULE)))
+  DIRS += tiny_strerror
 endif
 ifneq (,$(filter udp,$(USEMODULE)))
   DIRS += net/transport_layer/udp

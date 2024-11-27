@@ -23,7 +23,10 @@
 
 #include <assert.h>
 #include <string.h>
+#include <inttypes.h>
+#include <stdio.h>
 
+#include "container.h"
 #include "cpu.h"
 #include "riotboot/slot.h"
 #include "riotboot/hdr.h"

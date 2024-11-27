@@ -60,10 +60,10 @@ typedef uint8_t gpio_t;
  * @brief   Structure for UART configuration data
  */
 typedef struct {
-    uint32_t addr;            /**< UART control register address */
-    gpio_t   rx;              /**< RX pin */
-    gpio_t   tx;              /**< TX pin */
-    irqn_t   isr_num;         /**< ISR source number */
+    uint32_t addr;              /**< UART control register address */
+    gpio_t rx;                  /**< RX pin */
+    gpio_t tx;                  /**< TX pin */
+    irqn_t isr_num;             /**< ISR source number */
 } uart_conf_t;
 
 /**
@@ -167,24 +167,13 @@ typedef struct {
 #define RTT_MIN_FREQUENCY   (1U)                    /* in Hz */
 
 #ifndef RTT_FREQUENCY
-#ifdef MODULE_PERIPH_RTC
-#define RTT_FREQUENCY       (RTT_MIN_FREQUENCY)     /* in Hz */
-#else
 #define RTT_FREQUENCY       (RTT_MAX_FREQUENCY)     /* in Hz */
-#endif
 #endif
 
 /**
  * @brief   Initialization of the clock
  */
 void fe310_clock_init(void);
-
-/**
- * @brief   Get and eventually compute the current CPU core clock frequency
- *
- * @return  the cpu core clock frequency in Hz
- */
-uint32_t cpu_freq(void);
 
 /** @} */
 

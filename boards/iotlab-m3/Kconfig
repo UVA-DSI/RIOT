@@ -13,6 +13,4 @@ config BOARD_IOTLAB_M3
     default y
     select BOARD_COMMON_IOTLAB
 
-    select HAS_PERIPH_DMA
-
 source "$(RIOTBOARD)/common/iotlab/Kconfig"

@@ -48,6 +48,7 @@
 #ifndef PERIPH_FLASHPAGE_H
 #define PERIPH_FLASHPAGE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "cpu_conf.h"
@@ -150,6 +151,31 @@ enum {
 #error "periph/flashpage: FLASHPAGE_NUMOF not defined"
 #endif
 
+#if defined(MODULE_PERIPH_FLASHPAGE_IN_ADDRESS_SPACE) || defined(DOXYGEN)
+/**
+ * @def   FLASH_WRITABLE_INIT(name, size)
+ * @brief Define an array in flash memory
+ *
+ * This macro defines an array stored in the ".flash_writable" section
+ * which is part of flash memory. With this macro it is possible to
+ * reserve flash memory at build time.
+ *
+ * E.g. FLASH_WRITABLE_INIT(a, 2); will create a array with name 'a'
+ * of size 2 * @ref FLASHPAGE_SIZE which is stored in flash memory and takes up
+ * 2 flash pages.
+ *
+ * Symbols created by using this macro are sorted in ascending order by name.
+ * Therefore, &a < &b where a and b are arrays created using this macro.
+ *
+ * @param[in] name name of the array
+ * @param[in] size size of the array in unit of @ref FLASHPAGE_SIZE
+ */
+#define FLASH_WRITABLE_INIT(name, size) \
+    __attribute__((aligned(FLASHPAGE_SIZE))) \
+    __attribute__((section(".flash_writable." #name))) \
+    static const uint8_t name [size * FLASHPAGE_SIZE]
+#endif
+
 /**
  * @brief   Get the page size of the given page number
  *
@@ -189,7 +215,7 @@ static inline void *flashpage_addr(unsigned page)
  *
  * @return              page containing the given address
  */
-static inline unsigned flashpage_page(void *addr)
+static inline unsigned flashpage_page(const void *addr)
 {
     return (((intptr_t)addr - CPU_FLASH_BASE) / FLASHPAGE_SIZE);
 }
@@ -199,7 +225,7 @@ static inline unsigned flashpage_page(void *addr)
 /* Bare prototypes for the above functions. See above for the documentation */
 size_t flashpage_size(unsigned page);
 void *flashpage_addr(unsigned page);
-unsigned flashpage_page(void *addr);
+unsigned flashpage_page(const void *addr);
 
 #endif
 
@@ -318,7 +344,7 @@ static inline void *flashpage_rwwee_addr(unsigned page)
  *
  * @return              RWWEE page containing the given address
  */
-static inline int flashpage_rwwee_page(void *addr)
+static inline int flashpage_rwwee_page(const void *addr)
 {
     return (int)(((int)addr - CPU_FLASH_RWWEE_BASE) / FLASHPAGE_SIZE);
 }

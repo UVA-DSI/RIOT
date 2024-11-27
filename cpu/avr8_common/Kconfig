@@ -8,8 +8,6 @@
 
 config CPU_ARCH_AVR8
     bool
-    select HAS_ARCH_8BIT
-    select HAS_ARCH_AVR8
 
 ## Common CPU symbols
 config CPU_ARCH
@@ -17,9 +15,3 @@ config CPU_ARCH
 
 config CPU_CORE
     default "avr" if CPU_CORE_AVR
-
-## Declaration of specific features
-config HAS_ARCH_AVR8
-    bool
-    help
-        Indicates that the current architecture is Atmel AVR8.

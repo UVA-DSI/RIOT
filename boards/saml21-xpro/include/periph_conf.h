@@ -49,7 +49,7 @@ static const tc32_conf_t timer_config[] = {
         .dev            = TC0,
         .irq            = TC0_IRQn,
         .mclk           = &MCLK->APBCMASK.reg,
-        .mclk_mask      = MCLK_APBCMASK_TC0 | MCLK_APBCMASK_TC1,
+        .mclk_mask      = MCLK_APBCMASK_TC0_Msk | MCLK_APBCMASK_TC1_Msk,
         .gclk_id        = TC0_GCLK_ID,
         .gclk_src       = SAM0_GCLK_TIMER,
         .flags          = TC_CTRLA_MODE_COUNT32,
@@ -94,12 +94,27 @@ static const uart_conf_t uart_config[] = {
         .tx_pad   = UART_PAD_TX_0,
         .flags    = UART_FLAG_NONE,
         .gclk_src = SAM0_GCLK_MAIN,
+    },
+    {    /* EXT2 header */
+        .dev      = &SERCOM1->USART,
+        .rx_pin   = GPIO_PIN(PA, 19),
+        .tx_pin   = GPIO_PIN(PA, 18),
+#ifdef MODULE_PERIPH_UART_HW_FC
+        .rts_pin  = GPIO_UNDEF,
+        .cts_pin  = GPIO_UNDEF,
+#endif
+        .mux      = GPIO_MUX_C,
+        .rx_pad   = UART_PAD_RX_3,
+        .tx_pad   = UART_PAD_TX_2,
+        .flags    = UART_FLAG_NONE,
+        .gclk_src = SAM0_GCLK_MAIN,
     }
 };
 
 /* interrupt function name mapping */
 #define UART_0_ISR          isr_sercom3
 #define UART_1_ISR          isr_sercom4
+#define UART_2_ISR          isr_sercom1
 
 #define UART_NUMOF          ARRAY_SIZE(uart_config)
 /** @} */
@@ -108,25 +123,24 @@ static const uart_conf_t uart_config[] = {
  * @name PWM configuration
  * @{
  */
-#define PWM_0_EN            1
-
-#if PWM_0_EN
 /* PWM0 channels */
 static const pwm_conf_chan_t pwm_chan0_config[] = {
     /* GPIO pin, MUX value, TCC channel */
-    { GPIO_PIN(PB, 10), GPIO_MUX_F, 4 },
+    {
+        .pin  = GPIO_PIN(PB, 10),
+        .mux  = GPIO_MUX_F,
+        .chan = 4
+    },
 };
-#endif
 
 /* PWM device configuration */
 static const pwm_conf_t pwm_config[] = {
-#if PWM_0_EN
-    { .tim  = TCC_CONFIG(TCC0),
-      .chan = pwm_chan0_config,
-      .chan_numof = ARRAY_SIZE(pwm_chan0_config),
-      .gclk_src = SAM0_GCLK_TIMER,
+    {
+        .tim  = TCC_CONFIG(TCC0),
+        .chan = pwm_chan0_config,
+        .chan_numof = ARRAY_SIZE(pwm_chan0_config),
+        .gclk_src = SAM0_GCLK_TIMER,
     },
-#endif
 };
 
 /* number of devices that are actually defined */
@@ -138,7 +152,7 @@ static const pwm_conf_t pwm_config[] = {
  * @{
  */
 static const spi_conf_t spi_config[] = {
-    {
+    {    /* EXT1 header */
         .dev      = &(SERCOM0->SPI),
         .miso_pin = GPIO_PIN(PA, 4),
         .mosi_pin = GPIO_PIN(PA, 6),
@@ -152,6 +166,23 @@ static const spi_conf_t spi_config[] = {
 #ifdef MODULE_PERIPH_DMA
         .tx_trigger = SERCOM0_DMAC_ID_TX,
         .rx_trigger = SERCOM0_DMAC_ID_RX,
+#endif
+    },
+    {    /* EXT2, EXT3 header */
+        .dev      = &(SERCOM5->SPI),
+        .miso_pin = GPIO_PIN(PB, 16),
+        .mosi_pin = GPIO_PIN(PB, 22),
+        .clk_pin  = GPIO_PIN(PB, 23),
+        .miso_mux = GPIO_MUX_C,
+        .mosi_mux = GPIO_MUX_D,
+        .clk_mux  = GPIO_MUX_D,
+        .miso_pad = SPI_PAD_MISO_0,
+        .mosi_pad = SPI_PAD_MOSI_2_SCK_3,
+        .gclk_src = SAM0_GCLK_MAIN,
+#ifdef MODULE_PERIPH_DMA
+        /* no DMA on SERCOM5 */
+        .tx_trigger = DMA_TRIGGER_DISABLED,
+        .rx_trigger = DMA_TRIGGER_DISABLED,
 #endif
     }
 };
@@ -209,9 +240,9 @@ static const i2c_conf_t i2c_config[] = {
 
 static const adc_conf_chan_t adc_channels[] = {
     /* port, pin, muxpos */
-    {GPIO_PIN(PA, 10), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN18)},
-    {GPIO_PIN(PA, 11), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN19)},
-    {GPIO_PIN(PA, 2), ADC_INPUTCTRL_MUXPOS(ADC_INPUTCTRL_MUXPOS_AIN0)}
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA10 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA11 },
+    { .inputctrl = ADC_INPUTCTRL_MUXPOS_PA02 }
 };
 
 #define ADC_NUMOF                           ARRAY_SIZE(adc_channels)

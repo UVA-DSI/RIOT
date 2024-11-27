@@ -15,7 +15,7 @@
  * @brief   Definitions to use tlsf as malloc on native.
  * @author  Juan I Carrano
  *
- * This assumes glibc is bein used.
+ * This assumes glibc is being used.
  * see: https://www.gnu.org/software/libc/manual/html_node/Replacing-malloc.html
  *
  */
@@ -109,7 +109,6 @@ ATTR_REALLOC void *realloc(void *ptr, size_t size)
     irq_restore(old_state);
     return result;
 }
-
 
 /**
  * Deallocate a block of data.

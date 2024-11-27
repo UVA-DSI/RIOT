@@ -32,7 +32,7 @@ extern "C" {
  * @see     lwIP documentation
  * @{
  */
-#ifdef MODULE_LWIP_ARP
+#if defined(MODULE_LWIP_ARP) && defined(MODULE_LWIP_ETHERNET)
 #define LWIP_ARP                1
 #else  /* MODULE_LWIP_ARP */
 #define LWIP_ARP                0
@@ -143,7 +143,7 @@ extern "C" {
 #define LWIP_NETCONN            0
 #endif /* MODULE_LWIP_SOCK */
 
-#ifdef MODULE_SHELL_COMMANDS
+#ifdef MODULE_SHELL_CMD_LWIP_NETIF
 #define LWIP_DEBUG              1
 #endif
 
@@ -169,6 +169,15 @@ extern "C" {
 #ifndef MEM_SIZE
 /* packet buffer size of GNRC + stack for TCP/IP */
 #define MEM_SIZE                (TCPIP_THREAD_STACKSIZE + 6144)
+#endif
+
+#ifdef DEVELHELP
+void sys_mark_tcpip_thread(void);
+#define LWIP_MARK_TCPIP_THREAD sys_mark_tcpip_thread
+
+bool sys_check_core_locked(void);
+#define LWIP_ASSERT_CORE_LOCKED() \
+    LWIP_ASSERT("Core lock held", sys_check_core_locked())
 #endif
 
 /** @} */

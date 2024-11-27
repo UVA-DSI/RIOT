@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 # Copyright (C) 2019 Otto-von-Guericke-Universität Magdeburg
 #
@@ -85,7 +85,7 @@ def detect_targets(gdbmi, res):
     while True:
         for msg in res:
             if msg['type'] == 'target':
-                m = re.fullmatch(pattern=r"\s*(\d)+\s*(.*)\\n", string=msg['payload'])
+                m = re.fullmatch(pattern=r"\s*(\d+)\s*(.*)\s*", string=msg['payload'])
                 if m:
                     targets.append(m.group(2))
             elif msg['type'] == 'result':

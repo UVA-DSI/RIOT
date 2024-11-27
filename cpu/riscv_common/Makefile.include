@@ -14,12 +14,16 @@ ifneq (,$(ROM_START_ADDR)$(RAM_START_ADDR)$(ROM_LEN)$(RAM_LEN))
   LINKFLAGS += $(LINKFLAGPREFIX)--defsym=_ram_start_addr=$(RAM_START_ADDR)
   LINKFLAGS += $(LINKFLAGPREFIX)--defsym=_rom_length=$(ROM_LEN)
   LINKFLAGS += $(LINKFLAGPREFIX)--defsym=_ram_length=$(RAM_LEN)
+  LINKFLAGS += $(if $(ROM_OFFSET),$(LINKFLAGPREFIX)--defsym=_rom_offset=$(ROM_OFFSET))
+  LINKFLAGS += $(if $(FW_ROM_LEN),$(LINKFLAGPREFIX)--defsym=_fw_rom_length=$(FW_ROM_LEN))
 endif
 
 ifneq (,$(ITIM_START_ADDR))
   LINKFLAGS += $(LINKFLAGPREFIX)--defsym=_itim_start_addr=$(ITIM_START_ADDR)
   LINKFLAGS += $(LINKFLAGPREFIX)--defsym=_itim_length=$(ITIM_LEN)
 endif
+
+CFLAGS += -DROM_START_ADDR=$(ROM_START_ADDR)
 
 LINKER_SCRIPT ?= riscv.ld
 

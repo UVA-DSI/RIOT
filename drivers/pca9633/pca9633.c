@@ -66,8 +66,6 @@ int pca9633_init(pca9633_t *dev, const pca9633_params_t *params)
 
     dev->params = *params;
 
-    i2c_init(dev->params.i2c_dev);
-
     int rc = _write_reg(dev, PCA9633_REG_MODE1, 0x0);
     _write_reg(dev, PCA9633_REG_MODE2, 0x0);
 
@@ -259,9 +257,7 @@ int _write_reg(pca9633_t* dev, uint8_t reg, uint8_t data)
 {
     i2c_t i2c_dev = dev->params.i2c_dev;
 
-    if (i2c_acquire(i2c_dev) != 0) {
-        return -PCA9633_ERROR_I2C;
-    }
+    i2c_acquire(i2c_dev);
     int rc = i2c_write_reg(i2c_dev, dev->params.i2c_addr, reg, data, 0);
     i2c_release(i2c_dev);
 
@@ -272,9 +268,7 @@ int _read_reg(pca9633_t* dev, uint8_t reg, uint8_t* data)
 {
     i2c_t i2c_dev = dev->params.i2c_dev;
 
-    if (i2c_acquire(i2c_dev) != 0) {
-        return -PCA9633_ERROR_I2C;
-    }
+    i2c_acquire(i2c_dev);
     int rc = i2c_read_reg(i2c_dev, dev->params.i2c_addr, reg, data, 0);
     i2c_release(i2c_dev);
 

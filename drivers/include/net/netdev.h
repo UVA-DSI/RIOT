@@ -238,6 +238,7 @@ typedef enum {
     NETDEV_EVENT_RX_COMPLETE,               /**< finished receiving a frame */
     NETDEV_EVENT_TX_STARTED,                /**< started to transfer a frame */
     NETDEV_EVENT_TX_COMPLETE,               /**< transfer frame complete */
+#if IS_USED(MODULE_NETDEV_LEGACY_API) || DOXYGEN
     /**
      * @brief   transfer frame complete and data pending flag
      *
@@ -261,6 +262,7 @@ typedef enum {
      *              `-EBUSY` in netdev_driver_t::confirm_send.
      */
     NETDEV_EVENT_TX_MEDIUM_BUSY,
+#endif
     NETDEV_EVENT_LINK_UP,                   /**< link established */
     NETDEV_EVENT_LINK_DOWN,                 /**< link gone */
     NETDEV_EVENT_TX_TIMEOUT,                /**< timeout when sending */
@@ -289,7 +291,8 @@ typedef struct netdev netdev_t;
 /**
  * @brief   Event callback for signaling event to upper layers
  *
- * @param[in] type          type of the event
+ * @param[in] dev           pointer to the device descriptor
+ * @param[in] event         type of the event
  */
 typedef void (*netdev_event_cb_t)(netdev_t *dev, netdev_event_t event);
 
@@ -319,9 +322,20 @@ typedef enum {
     NETDEV_NRF24L01P_NG,
     NETDEV_SOCKET_ZEP,
     NETDEV_SX126X,
+    NETDEV_SX1280,
     NETDEV_CC2420,
     NETDEV_ETHOS,
     NETDEV_SLIPDEV,
+    NETDEV_TAP,
+    NETDEV_W5100,
+    NETDEV_ENCX24J600,
+    NETDEV_ATWINC15X0,
+    NETDEV_KW2XRF,
+    NETDEV_ESP_ETH,
+    NETDEV_ESP_WIFI,
+    NETDEV_CDC_ECM,
+    NETDEV_TINYUSB,
+    NETDEV_W5500,
     /* add more if needed */
 } netdev_type_t;
 /** @} */
@@ -330,6 +344,14 @@ typedef enum {
  * @brief   Will match any device index
  */
 #define NETDEV_INDEX_ANY    (0xFF)
+
+#if DOXYGEN
+/**
+ * @brief   Call @ref netdev_register_signal when the netdev device is
+ *          registered.
+ */
+#define CONFIG_NETDEV_REGISTER_SIGNAL 0
+#endif
 
 /**
  * @brief Structure to hold driver state
@@ -341,11 +363,11 @@ typedef enum {
  * be used by upper layers to store reference information.
  */
 struct netdev {
-    const struct netdev_driver *driver;            /**< ptr to that driver's interface. */
-    netdev_event_cb_t event_callback;              /**< callback for device events */
-    void *context;                                 /**< ptr to network stack context */
+    const struct netdev_driver *driver;             /**< ptr to that driver's interface. */
+    netdev_event_cb_t event_callback;               /**< callback for device events */
+    void *context;                                  /**< ptr to network stack context */
 #ifdef MODULE_NETDEV_LAYER
-    netdev_t *lower;                               /**< ptr to the lower netdev layer */
+    netdev_t *lower;                                /**< ptr to the lower netdev layer */
 #endif
 #ifdef MODULE_L2FILTER
     l2filter_t filter[CONFIG_L2FILTER_LISTSIZE];   /**< link layer address filters */
@@ -355,6 +377,21 @@ struct netdev {
     uint8_t index;                          /**< instance number of the device */
 #endif
 };
+
+/**
+ * @brief   Signal that the @ref netdev_register function registered the device.
+ *
+ *          This function is called right after @ref netdev_register registered
+ *          the device.
+ *
+ * @note    This function is called only if the CFLAG @ref
+ *          CONFIG_NETDEV_REGISTER_SIGNAL is set.
+ *
+ * @param[in] dev           pointer to the device descriptor
+ * @param[in] type          the driver used for the netdev
+ * @param[in] index         the index in the config struct
+ */
+void netdev_register_signal(struct netdev *dev, netdev_type_t type, uint8_t index);
 
 /**
  * @brief Register a device with netdev.
@@ -367,13 +404,17 @@ struct netdev {
 static inline void netdev_register(struct netdev *dev, netdev_type_t type, uint8_t index)
 {
 #ifdef MODULE_NETDEV_REGISTER
-    dev->type  = type;
+    dev->type = type;
     dev->index = index;
 #else
-    (void) dev;
-    (void) type;
-    (void) index;
+    (void)dev;
+    (void)type;
+    (void)index;
 #endif
+
+    if (IS_ACTIVE(CONFIG_NETDEV_REGISTER_SIGNAL)) {
+        netdev_register_signal(dev, type, index);
+    }
 }
 
 /**
@@ -399,13 +440,19 @@ typedef struct netdev_driver {
      * @retval  -ENETDOWN   Device is powered down
      * @retval  <0          Other error
      * @retval  0           Transmission successfully started
-     * @retval  >0          Number of bytes transmitted (deprecated!)
+     * @retval  >0          Number of bytes transmitted (transmission already complete)
      *
      * This function will cause the driver to start the transmission in an
      * async fashion. The driver will "own" the `iolist` until a subsequent
      * call to @ref netdev_driver_t::confirm_send returns something different
      * than `-EAGAIN`. The driver must signal completion using the
      * NETDEV_EVENT_TX_COMPLETE event, regardless of success or failure.
+     *
+     * If the driver implements blocking send (e.g. because it writes out the
+     * frame byte-by-byte over a serial line) it can also return the number of bytes
+     * transmitted here directly. In this case it MUST NOT emit a NETDEV_EVENT_TX_COMPLETE
+     * event, netdev_driver_t::confirm_send will never be called but should still be
+     * implemented to signal conformance to the new API.
      *
      * Old drivers might not be ported to the new API and have
      * netdev_driver_t::confirm_send set to `NULL`. In that case the driver
@@ -429,10 +476,12 @@ typedef struct netdev_driver {
      *          frame delimiters, etc. May be an estimate for performance
      *          reasons.)
      * @retval  -EAGAIN     Transmission still ongoing. (Call later again!)
-     * @retval  -ECOMM      Any kind of transmission error, such as collision
-     *                      detected, layer 2 ACK timeout, etc.
+     * @retval  -EHOSTUNREACH  Layer 2 ACK timeout
+     * @retval  -EBUSY      Medium is busy. (E.g. Auto-CCA failed / timed out,
+     *                      collision detected)
+     * @retval  -ENETDOWN   Interface is not connected / powered down
+     * @retval  -EIO        Any kind of transmission error
      *                      Use @p info for more details
-     * @retval  -EBUSY      Medium is busy. (E.g. Auto-CCA failed / timed out)
      * @retval  <0          Other error. (Please use a negative errno code.)
      *
      * @warning After netdev_driver_t::send was called and returned zero, this

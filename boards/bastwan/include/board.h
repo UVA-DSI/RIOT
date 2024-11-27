@@ -25,6 +25,7 @@
 #define BOARD_H
 
 #include "cpu.h"
+#include "periph/gpio.h"
 #include "periph/pm.h"
 
 #ifdef __cplusplus
@@ -66,12 +67,6 @@ extern "C"
 #define LED0_OFF (LED_PORT.OUTSET.reg = LED0_MASK)
 #define LED0_TOGGLE (LED_PORT.OUTTGL.reg = LED0_MASK)
 /** @}*/
-
-/**
- * @brief Initialize board specific hardware, including clock, LEDs and std-IO
- *
- */
-void board_init(void);
 
 #ifdef __cplusplus
 }

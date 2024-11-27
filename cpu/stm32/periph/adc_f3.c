@@ -23,7 +23,8 @@
 #include "mutex.h"
 #include "periph/adc.h"
 #include "periph_conf.h"
-#include "xtimer.h"
+#include "ztimer.h"
+#include "periph/vbat.h"
 
 #define SMP_MIN         (0x2) /*< Sampling time for slow channels
                                   (0x2 = 4.5 ADC clock cycles) */
@@ -31,6 +32,13 @@
 #define ADC_INSTANCE    ADC1_COMMON
 #else
 #define ADC_INSTANCE    ADC12_COMMON
+#endif
+
+/**
+ * @brief   Default VBAT undefined value
+ */
+#ifndef VBAT_ADC
+#define VBAT_ADC    ADC_UNDEF
 #endif
 
 /**
@@ -128,13 +136,20 @@ int adc_init(adc_t line)
     }
 
     /* Configure the pin */
-    gpio_init_analog(adc_config[line].pin);
-
+    if (adc_config[line].pin != GPIO_UNDEF) {
+        gpio_init_analog(adc_config[line].pin);
+    }
     /* Init ADC line only if it wasn't already initialized */
     if (!(dev(line)->CR & ADC_CR_ADEN)) {
         /* Enable ADC internal voltage regulator and wait for startup period */
         dev(line)->CR |= ADC_CR_ADVREGEN;
-        xtimer_usleep(ADC_T_ADCVREG_STUP_US);
+#if IS_USED(MODULE_ZTIMER_USEC)
+        ztimer_sleep(ZTIMER_USEC, ADC_T_ADCVREG_STUP_US);
+#else
+        /* to avoid using ZTIMER_USEC unless already included round up the
+           internal voltage regulator start up to 1ms */
+        ztimer_sleep(ZTIMER_MSEC, 1);
+#endif
 
         if (dev(line)->DIFSEL & (1 << adc_config[line].chan)) {
             /* Configure calibration for differential inputs */
@@ -186,6 +201,11 @@ int32_t adc_sample(adc_t line, adc_res_t res)
     /* Lock and power on the ADC device */
     prep(line);
 
+    /* check if this is the VBAT line */
+    if (IS_USED(MODULE_PERIPH_VBAT) && line == VBAT_ADC) {
+        vbat_enable();
+    }
+
     /* Set resolution */
     dev(line)->CFGR &= ~ADC_CFGR_RES;
     dev(line)->CFGR |= res;
@@ -199,6 +219,11 @@ int32_t adc_sample(adc_t line, adc_res_t res)
 
     /* Read the sample */
     sample = (int)dev(line)->DR;
+
+    /* check if this is the VBAT line */
+    if (IS_USED(MODULE_PERIPH_VBAT) && line == VBAT_ADC) {
+        vbat_disable();
+    }
 
     /* Power off and unlock device again */
     done(line);

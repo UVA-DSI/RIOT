@@ -20,23 +20,12 @@
 #define BOARD_H
 
 #include "cpu.h"
-#include "mtd.h"
 #include "periph_conf.h"
 #include "periph_cpu.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**
- * @name    Clock configuration
- * @{
- */
-#ifndef CLOCK_CORECLOCK
-/* Using 32MHz internal oscillator as default clock source */
-#define CLOCK_CORECLOCK     (32000000ul)
-#endif
-/** @} */
 
 /**
  * @name    LED configuration
@@ -73,14 +62,8 @@ extern "C" {
  * @name MTD configuration
  * @{
  */
-extern mtd_dev_t *mtd0;
-#define MTD_0 mtd0
+#define MTD_0 mtd_dev_get(0)
 /** @} */
-
-/**
- * @brief   Initialize board specific hardware
- */
-void board_init(void);
 
 #ifdef __cplusplus
 }

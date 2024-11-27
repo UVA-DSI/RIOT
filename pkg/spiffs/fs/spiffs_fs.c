@@ -18,7 +18,6 @@
  * @}
  */
 
-
 #include <assert.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -228,7 +227,6 @@ static int _statvfs(vfs_mount_t *mountp, const char *restrict path, struct statv
         return -EFAULT;
     }
     spiffs_desc_t *fs_desc = mountp->private_data;
-    memset(buf, 0, sizeof(*buf));
 
     uint32_t total;
     uint32_t used;
@@ -248,10 +246,9 @@ static int _statvfs(vfs_mount_t *mountp, const char *restrict path, struct statv
     return 0;
 }
 
-static int _open(vfs_file_t *filp, const char *name, int flags, mode_t mode, const char *abs_path)
+static int _open(vfs_file_t *filp, const char *name, int flags, mode_t mode)
 {
     spiffs_desc_t *fs_desc = filp->mp->private_data;
-    (void) abs_path;
     DEBUG("spiffs: open: private_data = %p\n", filp->mp->private_data);
 
     spiffs_flags s_flags = 0;
@@ -282,7 +279,7 @@ static int _open(vfs_file_t *filp, const char *name, int flags, mode_t mode, con
         s_flags |= SPIFFS_O_EXCL;
     }
 
-    DEBUG("spiffs: open: %s (abs_path: %s), flags: 0x%x, mode: %d\n", name, abs_path, (int) s_flags, (int) mode);
+    DEBUG("spiffs: open: %s, flags: 0x%x, mode: %d\n", name, (int) s_flags, (int) mode);
 
     s32_t ret = SPIFFS_open(&fs_desc->fs, name, s_flags, mode);
     if (ret >= 0) {
@@ -333,13 +330,20 @@ static off_t _lseek(vfs_file_t *filp, off_t off, int whence)
     return spiffs_err_to_errno(SPIFFS_lseek(&fs_desc->fs, filp->private_data.value, off, s_whence));
 }
 
+static int _fsync(vfs_file_t *filp)
+{
+    spiffs_desc_t *fs_desc = filp->mp->private_data;
+
+    int ret = SPIFFS_fflush(&fs_desc->fs, filp->private_data.value);
+
+    return spiffs_err_to_errno(ret);
+}
+
 static int _fstat(vfs_file_t *filp, struct stat *buf)
 {
     spiffs_desc_t *fs_desc = filp->mp->private_data;
     spiffs_stat stat;
     s32_t ret;
-
-    memset(buf, 0, sizeof(*buf));
 
     ret = SPIFFS_fstat(&fs_desc->fs, filp->private_data.value, &stat);
 
@@ -356,11 +360,17 @@ static int _fstat(vfs_file_t *filp, struct stat *buf)
     return spiffs_err_to_errno(ret);
 }
 
-static int _opendir(vfs_DIR *dirp, const char *dirname, const char *abs_path)
+static spiffs_DIR * _get_spifs_dir(vfs_DIR *dirp)
+{
+    /* the private buffer is part of a union that also contains a
+     * void pointer, hence, it is naturally aligned */
+    return (spiffs_DIR *)(uintptr_t)&dirp->private_data.buffer[0];
+}
+
+static int _opendir(vfs_DIR *dirp, const char *dirname)
 {
     spiffs_desc_t *fs_desc = dirp->mp->private_data;
-    spiffs_DIR *d = (spiffs_DIR *)&dirp->private_data.buffer[0];
-    (void) abs_path;
+    spiffs_DIR *d = _get_spifs_dir(dirp);
 
     spiffs_DIR *res = SPIFFS_opendir(&fs_desc->fs, dirname, d);
     if (res == NULL) {
@@ -372,7 +382,7 @@ static int _opendir(vfs_DIR *dirp, const char *dirname, const char *abs_path)
 
 static int _readdir(vfs_DIR *dirp, vfs_dirent_t *entry)
 {
-    spiffs_DIR *d = (spiffs_DIR *)&dirp->private_data.buffer[0];
+    spiffs_DIR *d = _get_spifs_dir(dirp);
     struct spiffs_dirent e;
     struct spiffs_dirent *ret;
 
@@ -397,7 +407,7 @@ static int _readdir(vfs_DIR *dirp, vfs_dirent_t *entry)
 
 static int _closedir(vfs_DIR *dirp)
 {
-    spiffs_DIR *d = (spiffs_DIR *)&dirp->private_data.buffer[0];
+    spiffs_DIR *d = _get_spifs_dir(dirp);
 
     return spiffs_err_to_errno(SPIFFS_closedir(d));
 }
@@ -508,6 +518,7 @@ static const vfs_file_ops_t spiffs_file_ops = {
     .write = _write,
     .lseek = _lseek,
     .fstat = _fstat,
+    .fsync = _fsync,
 };
 
 static const vfs_dir_ops_t spiffs_dir_ops = {

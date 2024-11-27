@@ -22,8 +22,9 @@
 
 #include <stdio.h>
 
+#include "architecture.h"
 #include "irq.h"
-#include "xtimer.h"
+#include "ztimer.h"
 
 #ifndef CONFIG_TRACE_BUFSIZE
 #define CONFIG_TRACE_BUFSIZE 512
@@ -42,7 +43,7 @@ void trace(uint32_t val)
     unsigned state = irq_disable();
 
     tracebuf[tracebuf_pos % CONFIG_TRACE_BUFSIZE] =
-        (tracebuf_entry_t){ .time = xtimer_now_usec(), .val = val };
+        (tracebuf_entry_t){ .time = ztimer_now(ZTIMER_USEC), .val = val };
     tracebuf_pos++;
     irq_restore(state);
 }
@@ -54,9 +55,9 @@ void trace_dump(void)
     uint32_t t_last = 0;
 
     for (size_t i = 0; i < n; i++) {
-        printf("n=%4lu t=%s%8" PRIu32 " v=0x%08lx\n", (unsigned long)i,
+        printf("n=%4" PRIuSIZE " t=%s%8" PRIu32 " v=0x%08" PRIx32 "\n", i,
                i ? "+" : " ",
-               tracebuf[i].time - t_last, (unsigned long)tracebuf[i].val);
+               tracebuf[i].time - t_last, tracebuf[i].val);
         t_last = tracebuf[i].time;
     }
 }

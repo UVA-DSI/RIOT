@@ -49,10 +49,10 @@
 #define SERCOM_I2CM_CTRLA_MODE_I2C_MASTER SERCOM_I2CM_CTRLA_MODE(5)
 #endif
 
-static int _start(SercomI2cm *dev, uint16_t addr);
-static inline int _write(SercomI2cm *dev, const uint8_t *data, int length,
+static int _i2c_start(SercomI2cm *dev, uint16_t addr);
+static inline int _write(SercomI2cm *dev, const uint8_t *data, size_t length,
                          uint8_t stop);
-static inline int _read(SercomI2cm *dev, uint8_t *data, int length,
+static inline int _read(SercomI2cm *dev, uint8_t *data, size_t length,
                         uint8_t stop);
 static inline void _stop(SercomI2cm *dev);
 static inline int _wait_for_response(SercomI2cm *dev,
@@ -76,7 +76,7 @@ static inline SercomI2cm *bus(i2c_t dev)
 static void _syncbusy(SercomI2cm *dev)
 {
 #ifdef SERCOM_I2CM_STATUS_SYNCBUSY
-    while (dev->STATUS.bit.SYNCBUSY) {}
+    while (dev->STATUS.reg & SERCOM_I2CM_STATUS_SYNCBUSY) {}
 #else
     while (dev->SYNCBUSY.reg) {}
 #endif
@@ -88,9 +88,9 @@ static void _reset(SercomI2cm *dev)
     while (dev->CTRLA.reg & SERCOM_SPI_CTRLA_SWRST) {}
 
 #ifdef SERCOM_I2CM_STATUS_SYNCBUSY
-    while (dev->STATUS.bit.SYNCBUSY) {}
+    while (dev->STATUS.reg & SERCOM_I2CM_STATUS_SYNCBUSY) {}
 #else
-    while (dev->SYNCBUSY.bit.SWRST) {}
+    while (dev->SYNCBUSY.reg & SERCOM_I2CM_SYNCBUSY_SWRST) {}
 #endif
 }
 
@@ -194,11 +194,10 @@ void i2c_init(i2c_t dev)
     }
 }
 
-int i2c_acquire(i2c_t dev)
+void i2c_acquire(i2c_t dev)
 {
     assert(dev < I2C_NUMOF);
     mutex_lock(&locks[dev]);
-    return 0;
 }
 
 void i2c_release(i2c_t dev)
@@ -249,7 +248,7 @@ int i2c_read_bytes(i2c_t dev, uint16_t addr,
 
     if (!(flags & I2C_NOSTART)) {
         /* start transmission and send slave address */
-        ret = _start(bus(dev), (addr << 1) | I2C_READ);
+        ret = _i2c_start(bus(dev), (addr << 1) | I2C_READ);
         if (ret < 0) {
             DEBUG("Start command failed\n");
             return ret;
@@ -290,7 +289,7 @@ int i2c_write_bytes(i2c_t dev, uint16_t addr, const void *data, size_t len,
     }
 
     if (!(flags & I2C_NOSTART)) {
-        ret = _start(bus(dev), (addr<<1));
+        ret = _i2c_start(bus(dev), (addr<<1));
         if (ret < 0) {
             DEBUG("Start command failed\n");
             return ret;
@@ -312,7 +311,7 @@ void _i2c_poweron(i2c_t dev)
     if (bus(dev) == NULL) {
         return;
     }
-    bus(dev)->CTRLA.bit.ENABLE = 1;
+    bus(dev)->CTRLA.reg |= SERCOM_I2CM_CTRLA_ENABLE;
     _syncbusy(bus(dev));
 }
 
@@ -323,11 +322,11 @@ void _i2c_poweroff(i2c_t dev)
     if (bus(dev) == NULL) {
         return;
     }
-    bus(dev)->CTRLA.bit.ENABLE = 0;
+    bus(dev)->CTRLA.reg &= ~SERCOM_I2CM_CTRLA_ENABLE;
     _syncbusy(bus(dev));
 }
 
-static int _start(SercomI2cm *dev, uint16_t addr)
+static int _i2c_start(SercomI2cm *dev, uint16_t addr)
 {
     /* Wait for hardware module to sync */
     DEBUG("Wait for device to be ready\n");
@@ -374,10 +373,10 @@ static int _start(SercomI2cm *dev, uint16_t addr)
     return 0;
 }
 
-static inline int _write(SercomI2cm *dev, const uint8_t *data, int length,
+static inline int _write(SercomI2cm *dev, const uint8_t *data, size_t length,
                          uint8_t stop)
 {
-    uint8_t count = 0;
+    size_t count = 0;
 
     /* Write data buffer until the end. */
     DEBUG("Looping through bytes\n");
@@ -414,10 +413,10 @@ static inline int _write(SercomI2cm *dev, const uint8_t *data, int length,
     return 0;
 }
 
-static inline int _read(SercomI2cm *dev, uint8_t *data, int length,
+static inline int _read(SercomI2cm *dev, uint8_t *data, size_t length,
                         uint8_t stop)
 {
-    uint8_t count = 0;
+    size_t count = 0;
 
     /* Set action to ack. */
     dev->CTRLB.reg &= ~SERCOM_I2CM_CTRLB_ACKACT;

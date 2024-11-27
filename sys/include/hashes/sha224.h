@@ -30,7 +30,6 @@
  * $FreeBSD: src/lib/libmd/sha256.h,v 1.1.2.1 2005/06/24 13:32:25 cperciva Exp $
  */
 
-
 /**
  * @defgroup    sys_hashes_sha224 SHA-224
  * @ingroup     sys_hashes_unkeyed
@@ -111,11 +110,10 @@ static inline void sha224_final(sha224_context_t *ctx, void *digest)
  *
  * @param[in] data   pointer to the buffer to generate hash from
  * @param[in] len    length of the buffer
- * @param[out] digest optional pointer to an array for the result, length must
+ * @param[out] digest Pointer to an array for the result, length must
  *                    be SHA224_DIGEST_LENGTH
- *                    if digest == NULL, one static buffer is used
  */
-void *sha224(const void *data, size_t len, void *digest);
+void sha224(const void *data, size_t len, void *digest);
 
 #ifdef __cplusplus
 }

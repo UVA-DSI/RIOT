@@ -19,6 +19,7 @@
  */
 
 #include "cpu.h"
+#include "kernel_init.h"
 #include "periph_conf.h"
 #include "periph/init.h"
 #include "stdio_base.h"
@@ -117,15 +118,20 @@ static void clk_init(void)
 
     /* adjust NVM wait states */
     PM->APBBMASK.reg |= PM_APBBMASK_NVMCTRL;
-    NVMCTRL->CTRLB.reg |= NVMCTRL_CTRLB_RWS(WAITSTATES);
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS(WAITSTATES)
+#ifdef CPU_SAMD20
+    /* errata: In Standby, Idle1 and Idle2 Sleep modes,
+               the device might not wake up from sleep. */
+                       | NVMCTRL_CTRLB_SLEEPPRM_DISABLED
+#endif
+    /* errata: Default value of MANW in NVM.CTRLB is 0. */
+                       | NVMCTRL_CTRLB_MANW;
     PM->APBBMASK.reg &= ~PM_APBBMASK_NVMCTRL;
 
 #if CLOCK_8MHZ
     /* configure internal 8MHz oscillator to run without prescaler */
-    SYSCTRL->OSC8M.bit.PRESC = 0;
-    SYSCTRL->OSC8M.bit.ONDEMAND = 1;
-    SYSCTRL->OSC8M.bit.RUNSTDBY = 0;
-    SYSCTRL->OSC8M.bit.ENABLE = 1;
+    SYSCTRL->OSC8M.reg &= ~(SYSCTRL_OSC8M_PRESC_Msk);
+    SYSCTRL->OSC8M.reg |= (SYSCTRL_OSC8M_ONDEMAND | SYSCTRL_OSC8M_ENABLE);
     while (!(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_OSC8MRDY)) {}
 #endif
 
@@ -136,7 +142,7 @@ static void clk_init(void)
                             SYSCTRL_XOSC32K_STARTUP(XOSC32_STARTUP_TIME) |
                             SYSCTRL_XOSC32K_RUNSTDBY;
     /* Enable XOSC32 with Separate Call */
-    SYSCTRL->XOSC32K.bit.ENABLE = 1;
+    SYSCTRL->XOSC32K.reg |= SYSCTRL_XOSC32K_ENABLE;
 #endif
 
     /* reset the GCLK module so it is in a known state */
@@ -152,7 +158,6 @@ static void clk_init(void)
 #else
                       | GCLK_GENCTRL_SRC_XOSC32K);
 #endif
-
 
 #if CLOCK_USE_PLL
     /* setup generic clock 1 to feed DPLL with 1MHz */
@@ -195,7 +200,7 @@ static void clk_init(void)
     while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY) {}
 
     /* Disable ONDEMAND mode while writing configurations */
-    SYSCTRL->DFLLCTRL.bit.ONDEMAND = 0;
+    SYSCTRL->DFLLCTRL.reg &= ~(SYSCTRL_DFLLCTRL_ONDEMAND);
     while ((SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLRDY) == 0) {
         /* Wait for DFLL sync */
     }
@@ -214,7 +219,7 @@ static void clk_init(void)
         /* Wait for DFLL sync */
     }
 
-    SYSCTRL->DFLLCTRL.bit.ENABLE = 1;
+    SYSCTRL->DFLLCTRL.reg |= SYSCTRL_DFLLCTRL_ENABLE;
     uint32_t mask = SYSCTRL_PCLKSR_DFLLRDY |
                     SYSCTRL_PCLKSR_DFLLLCKF |
                     SYSCTRL_PCLKSR_DFLLLCKC;
@@ -230,7 +235,7 @@ static void clk_init(void)
                       | GCLK_CLKCTRL_GEN(SAM0_GCLK_MAIN);
     while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY) {}
 
-    SYSCTRL->DFLLCTRL.bit.ONDEMAND = 1;
+    SYSCTRL->DFLLCTRL.reg |= SYSCTRL_DFLLCTRL_ONDEMAND;
     while ((SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLRDY) == 0) {
         /* Wait for DFLL sync */
     }
@@ -258,14 +263,14 @@ static void clk_init(void)
     /* redirect all peripherals to a disabled clock generator (7) by default */
     for (unsigned i = 0x3; i <= GCLK_CLKCTRL_ID_Msk; i++) {
         GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(i) | GCLK_CLKCTRL_GEN(SAM0_GCLK_DISABLED);
-        while (GCLK->STATUS.bit.SYNCBUSY) {}
+        while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY) {}
     }
 }
 
 void cpu_init(void)
 {
     /* disable the watchdog timer */
-    WDT->CTRL.bit.ENABLE = 0;
+    WDT->CTRL.reg = 0;
     /* initialize the Cortex-M core */
     cortexm_init();
     /* Initialise clock sources and generic clocks */
@@ -275,7 +280,7 @@ void cpu_init(void)
     dma_init();
 #endif
     /* initialize stdio prior to periph_init() to allow use of DEBUG() there */
-    stdio_init();
+    early_init();
     /* trigger static peripheral initialization */
     periph_init();
 }

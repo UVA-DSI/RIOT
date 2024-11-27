@@ -17,7 +17,7 @@
  *
  * - Micro-SD card interface
  * - OV7670 camera interface
- * - 3.2" SPI LCD panel
+ * - 3.2\" SPI LCD panel
  * - RGB LED
  *
  * Furthermore, many GPIOs are broken out for extension. The USB bridge
@@ -32,10 +32,10 @@
  * configuration.
  *
  * For detailed information about the configuration of ESP32 boards, see
- * section \ref esp32_comm_periph "Common Peripherals".
+ * section \ref esp32_peripherals "Common Peripherals".
  *
  * @note
- * Most definitions can be overridden by an \ref esp32_app_spec_conf
+ * Most definitions can be overridden by an \ref esp32_application_specific_configurations
  * "application-specific board configuration".
  *
  * @file
@@ -76,6 +76,8 @@
 #ifdef  LED2_PIN
 #define LED_BLUE_PIN    LED2_PIN /**< LED2 is a blue LED */
 #endif
+
+/** @} */
 
 /**
  * @name   SD-Card interface configuration
@@ -119,9 +121,9 @@
 #define ILI9341_PARAM_RST       LCD_RST
 #define ILi9341_PARAM_RGB       0
 #define ILI9341_PARAM_INVERTED  0
+#define ILI9341_PARAM_ROTATION  ILI9341_ROTATION_HORZ_FLIP
 #endif
 /** @} */
-
 
 /* include common board definitions as last step */
 #include "board_common.h"
@@ -129,18 +131,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**
- * @brief Initialize the board specific hardware
- */
-static inline void board_init(void) {
-#if MODULE_ILI9341
-    gpio_init(LCD_BACKLIGHT, GPIO_OUT);
-#endif
-
-    /* there is nothing special to initialize on this board */
-    board_init_common();
-}
 
 #ifdef __cplusplus
 } /* end extern "C" */

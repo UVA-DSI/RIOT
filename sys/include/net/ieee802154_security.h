@@ -8,8 +8,14 @@
 
 /**
  * @defgroup    net_ieee802154_security  IEEE 802.15.4 security
- * @ingroup     net
+ * @ingroup     net_ieee802154
  * @brief       IEEE 802.15.4 security header
+ *
+ * @warning
+ * This module is exposing raw 802.15.4 encryption without an underlying key
+ * management framework. This is intended for experimentation with the security
+ * modes of 802.15.4, and not for use cases where its security is depended on.
+ *
  * @{
  *
  * @file
@@ -25,7 +31,6 @@
 #define NET_IEEE802154_SECURITY_H
 
 #include <stdint.h>
-#include "kernel_defines.h"
 #include "ieee802154.h"
 #include "crypto/ciphers.h"
 

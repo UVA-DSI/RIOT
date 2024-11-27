@@ -24,10 +24,13 @@
 #include "fmt.h"
 #include "kernel_defines.h"
 #include "log.h"
+#include "xfa.h"
 
 #include "suit.h"
 #include "suit/storage.h"
 #include "suit/storage/ram.h"
+
+XFA_USE(suit_storage_t, suit_storage_reg);
 
 static inline suit_storage_ram_t *_get_ram(suit_storage_t *storage)
 {
@@ -49,7 +52,7 @@ static inline suit_storage_ram_region_t *_get_active_region(
 static bool _get_region_by_string(const char *location, uint32_t *val)
 {
     /* Matching on .ram.### */
-    static const char prefix[] = ".ram.";
+    static const char prefix[] = CONFIG_SUIT_STORAGE_RAM_LOCATION_PREFIX;
     static const size_t prefix_len = sizeof(prefix) - 1;
 
     /* Check for prefix */
@@ -120,11 +123,9 @@ static int _ram_finish(suit_storage_t *storage, const suit_manifest_t *manifest)
     return SUIT_OK;
 }
 
-static int _ram_install(suit_storage_t *storage,
-                        const suit_manifest_t *manifest)
+static int _ram_install(suit_storage_t *storage, const suit_manifest_t *manifest)
 {
-    (void)manifest;
-    (void)storage;
+    suit_storage_set_seq_no(storage, manifest->seq_number);
     return SUIT_OK;
 }
 
@@ -221,7 +222,7 @@ static const suit_storage_driver_t suit_storage_ram_driver = {
     .set_active_location = _ram_set_active_location,
     .get_seq_no = _ram_get_seq_no,
     .set_seq_no = _ram_set_seq_no,
-    .separator = '.',
+    .separator = CONFIG_SUIT_STORAGE_RAM_LOCATION_SEPARATOR,
 };
 
 suit_storage_ram_t suit_storage_ram = {
@@ -229,3 +230,5 @@ suit_storage_ram_t suit_storage_ram = {
         .driver = &suit_storage_ram_driver,
     },
 };
+
+XFA(suit_storage_t *, suit_storage_reg, 0) suit_storage_ram_ptr = &suit_storage_ram.storage;

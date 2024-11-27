@@ -23,7 +23,7 @@
 #include "byteorder.h"
 #include "mutex.h"
 #include "timex.h"
-#include "xtimer.h"
+#include "ztimer.h"
 
 #include "lis2dh12.h"
 #include "lis2dh12_internal.h"
@@ -58,7 +58,8 @@ static int _init_bus(const lis2dh12_t *dev)
 
 static int _acquire(const lis2dh12_t *dev)
 {
-    return spi_acquire(BUS, BUS_CS, BUS_MODE, BUS_CLK);
+    spi_acquire(BUS, BUS_CS, BUS_MODE, BUS_CLK);
+    return BUS_OK;
 }
 
 static void _release(const lis2dh12_t *dev)
@@ -104,7 +105,8 @@ static int _init_bus(const lis2dh12_t *dev)
 
 static int _acquire(const lis2dh12_t *dev)
 {
-    return i2c_acquire(BUS);
+    i2c_acquire(BUS);
+    return BUS_OK;
 }
 
 static void _release(const lis2dh12_t *dev)
@@ -364,7 +366,7 @@ void lis2dh12_cfg_disable_event(const lis2dh12_t *dev, uint8_t event, uint8_t li
 {
     uint8_t reg = 0;
 
-    _release(dev);
+    _acquire(dev);
 
     /* read current interrupt configuration */
     if (line == LIS2DH12_INT1) {
@@ -591,11 +593,11 @@ int lis2dh12_read_temperature(const lis2dh12_t *dev, int16_t *temp)
 
     /* enable temperature sensor */
     if (!_read(dev, REG_TEMP_CFG_REG)) {
-        uint8_t odr = _read(dev, REG_CTRL_REG1) >> 4;
         _write(dev, REG_TEMP_CFG_REG, LIS2DH12_TEMP_CFG_REG_ENABLE);
-        if (IS_USED(MODULE_XTIMER)) {
-            xtimer_msleep(MS_PER_SEC / hz_per_dr[odr]);
-        }
+#if IS_USED(MODULE_ZTIMER_MSEC)
+        uint8_t odr = _read(dev, REG_CTRL_REG1) >> 4;
+        ztimer_sleep(ZTIMER_MSEC, MS_PER_SEC / hz_per_dr[odr]);
+#endif
     }
 
     _read_burst(dev, REG_OUT_TEMP_L, bytes, sizeof(bytes));

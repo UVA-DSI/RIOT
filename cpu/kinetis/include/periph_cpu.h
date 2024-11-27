@@ -116,6 +116,21 @@ typedef uint16_t gpio_t;
 #define SPI_HWCS_NUMOF      (5)
 
 /**
+ * @brief   Define value for unused CS line
+ */
+#define SPI_CS_UNDEF        (GPIO_UNDEF)
+
+#ifndef DOXYGEN
+/**
+ * @brief   Overwrite the default spi_cs_t type definition
+ * @{
+ */
+#define HAVE_SPI_CS_T
+typedef uint32_t spi_cs_t;
+/** @} */
+#endif
+
+/**
  * @name    This CPU makes use of the following shared SPI functions
  * @{
  */
@@ -130,10 +145,15 @@ typedef uint16_t gpio_t;
 #define PERIPH_TIMER_PROVIDES_SET
 
 /**
+ * @brief   Only a single channel supported by the driver/hardware
+ */
+#define TIMER_CHANNEL_NUMOF             1
+
+/**
  * @name    Kinetis power mode configuration
  * @{
  */
-#define PM_NUM_MODES    (3U)
+#define PM_NUM_MODES    (4U)
 enum {
     KINETIS_PM_LLS  = 0,
     KINETIS_PM_VLPS = 1,
@@ -454,7 +474,7 @@ typedef struct {
     gpio_t pin_miso;                    /**< MISO pin used */
     gpio_t pin_mosi;                    /**< MOSI pin used */
     gpio_t pin_clk;                     /**< CLK pin used */
-    gpio_t pin_cs[SPI_HWCS_NUMOF];      /**< pins used for HW cs lines */
+    spi_cs_t pin_cs[SPI_HWCS_NUMOF];    /**< pins used for HW cs lines */
 #ifdef KINETIS_HAVE_PCR
     gpio_pcr_t pcr;                     /**< alternate pin function values */
 #endif /* KINETIS_HAVE_PCR */
@@ -500,7 +520,7 @@ enum {
 #ifndef RTT_FREQUENCY
 #define RTT_FREQUENCY       RTT_MAX_FREQUENCY
 #endif
-#if IS_USED(PERIPH_RTT)
+#if IS_USED(MODULE_PERIPH_RTT)
 /* On kinetis periph_rtt is built on top on an LPTIMER so if used it
    will conflict with xtimer, if a LPTIMER backend and RTT are needed
    consider using ztimer */
@@ -510,7 +530,6 @@ enum {
    than the current sleep timer value. Otherwise, the timer compare
    event may be lost. */
 /** @} */
-
 
 /**
  * @brief UART hardware module types

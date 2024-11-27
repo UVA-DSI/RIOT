@@ -24,7 +24,14 @@ ifeq (,$(PKG_LICENSE))
   $(error PKG_LICENSE not defined)
 endif
 
+ifneq (, $(PKG_MIRROR_URL))
+  ifneq (0, $(PKG_USE_MIRROR))
+    PKG_URL = $(PKG_MIRROR_URL)
+  endif
+endif
+
 PKG_DIR ?= $(CURDIR)
+PKG_PATCH_DIR ?= $(PKG_DIR)/patches
 
 PKG_BUILD_OUT_OF_SOURCE ?= 1
 ifeq (1,$(PKG_BUILD_OUT_OF_SOURCE))
@@ -60,7 +67,7 @@ GITAMFLAGS ?= $(GIT_QUIET) --no-gpg-sign --ignore-whitespace --whitespace=nowarn
 
 .PHONY: all prepare clean distclean FORCE
 
-PKG_PATCHES = $(sort $(wildcard $(PKG_DIR)/patches/*.patch))
+PKG_PATCHES = $(sort $(wildcard $(PKG_PATCH_DIR)/*.patch))
 
 PKG_STATE_FILE = .pkg-state.git
 PKG_STATE      = $(PKG_SOURCE_DIR)/$(PKG_STATE_FILE)
@@ -75,8 +82,15 @@ PKG_CUSTOM_PREPARED ?=
 # Declare 'all' first to have it being the default target
 all: prepare
 
+BUILD_DIR ?= $(RIOTBASE)/build
+
+$(BUILD_DIR)/CACHEDIR.TAG:
+	$(Q)mkdir -p "$(BUILD_DIR)"
+	$(Q)echo "Signature: 8a477f597d28d172789f06886806bc55" > "$@"
+	$(Q)echo "# This folder contains RIOT's build cache" >> "$@"
+
 # Add noop builtin to avoid "Nothing to be done for prepare" message
-prepare: $(PKG_PREPARED)
+prepare: $(PKG_PREPARED) | $(BUILD_DIR)/CACHEDIR.TAG
 	@:
 
 # Allow packages to add a custom step to be `prepared`.
@@ -104,26 +118,63 @@ gen_dependency_files = $(file >$1,$@: $2)$(foreach f,$2,$(file >>$1,$(f):))
 # * checkout the wanted base commit
 # * apply patches if there are any. (If none, it does nothing)
 $(PKG_PATCHED): $(PKG_PATCHED_PREREQUISITES)
-	$(info [INFO] patch $(PKG_NAME))
+	$(if $(QUIETER),,$(info [INFO] patch $(PKG_NAME)))
 	$(call gen_dependency_files,$@.d,$(PKG_PATCHED_PREREQUISITES))
 	$(Q)$(GIT_IN_PKG) clean $(GIT_QUIET) -xdff '**' -e $(PKG_STATE:$(PKG_SOURCE_DIR)/%='%*')
 	$(Q)$(GIT_IN_PKG) checkout $(GIT_QUIET) -f $(PKG_VERSION)
-	$(Q)$(GIT_IN_PKG) $(GITFLAGS) am $(GITAMFLAGS) $(PKG_PATCHES) </dev/null
-	@touch $@
+	$(Q) if test -n "$(PKG_PATCHES)" ; then \
+	       $(GIT_IN_PKG) $(GITFLAGS) am $(GITAMFLAGS) $(PKG_PATCHES) ; \
+	     fi
+	$(Q)touch $@
 
 $(PKG_DOWNLOADED): $(MAKEFILE_LIST) | $(PKG_SOURCE_DIR)/.git
-	$(info [INFO] updating $(PKG_NAME) $(PKG_DOWNLOADED))
+	$(if $(QUIETER),,$(info [INFO] updating $(PKG_NAME) $(PKG_DOWNLOADED)))
 	$(Q)if ! $(GIT_IN_PKG) cat-file -e $(PKG_VERSION); then \
-		printf "[INFO] fetching new $(PKG_NAME) version "$(PKG_VERSION)"\n"; \
+		$(if $(QUIETER),,printf "[INFO] fetching new $(PKG_NAME) version "$(PKG_VERSION)"\n";) \
 		$(GIT_IN_PKG) fetch $(GIT_QUIET) "$(PKG_URL)" "$(PKG_VERSION)"; \
 	fi
-	echo $(PKG_VERSION) > $@
+	$(Q)echo $(PKG_VERSION) > $@
 
+# This snippet ensures that for packages that have dynamic sparse paths (e.g.,
+# pkg/cmsis), the sparse paths of the time of checkout are the same as needed
+# now.
+# E.g., build a) only needs CMSIS/Core. Build b) also needs CMSIS/DSP.
+# If b) is built after a) and the cmsis checkout does not contain CMSIS/DSP,
+# the sources need to be checked out again.
+# (Inside, this is doing an ad-hoc "|$(LAZYSPONGE)", but using the python version turned out
+# to be significantly slower).
+ifneq (, $(PKG_SPARSE_PATHS))
+PKG_SPARSE_TAG = $(PKG_SOURCE_DIR).sparse
+$(PKG_SPARSE_TAG): FORCE
+	$(Q)if test -f $@; then \
+		test "$$(cat $@)" = "$(PKG_SPARSE_PATHS)" && exit 0; \
+	fi ; mkdir -p $$(dirname $@) && echo "$(PKG_SPARSE_PATHS)" > $@
+endif
+
+ifneq (,$(GIT_CACHE_RS))
+$(PKG_SOURCE_DIR)/.git: $(PKG_SPARSE_TAG) | $(PKG_CUSTOM_PREPARED)
+	$(if $(QUIETER),,$(info [INFO] cloning $(PKG_NAME)))
+	$(Q)rm -Rf $(PKG_SOURCE_DIR)
+	$(Q)$(GIT_CACHE_RS) clone --commit $(PKG_VERSION) $(addprefix --sparse-add ,$(PKG_SPARSE_PATHS)) -- $(PKG_URL) $(PKG_SOURCE_DIR)
+else ifeq ($(GIT_CACHE_DIR),$(wildcard $(GIT_CACHE_DIR)))
 $(PKG_SOURCE_DIR)/.git: | $(PKG_CUSTOM_PREPARED)
-	$(info [INFO] cloning $(PKG_NAME))
+	$(if $(QUIETER),,$(info [INFO] cloning $(PKG_NAME)))
 	$(Q)rm -Rf $(PKG_SOURCE_DIR)
 	$(Q)mkdir -p $(PKG_SOURCE_DIR)
 	$(Q)$(GITCACHE) clone $(PKG_URL) $(PKG_VERSION) $(PKG_SOURCE_DIR)
+else
+# redirect stderr so git sees a pipe and not a terminal see https://github.com/git/git/blob/master/progress.c#L138
+$(PKG_SOURCE_DIR)/.git: | $(PKG_CUSTOM_PREPARED)
+	$(if $(QUIETER),,$(info [INFO] cloning without cache $(PKG_NAME)))
+	$(Q)rm -Rf $(PKG_SOURCE_DIR)
+	$(Q)mkdir -p $(PKG_SOURCE_DIR)
+	$(Q)git init $(GIT_QUIET) $(PKG_SOURCE_DIR)
+	$(Q)$(GIT_IN_PKG) remote add origin $(PKG_URL)
+	$(Q)$(GIT_IN_PKG) config extensions.partialClone origin
+	$(Q)$(GIT_IN_PKG) config advice.detachedHead false
+	$(Q)$(GIT_IN_PKG) fetch $(GIT_QUIET) --depth=1 -t --filter=blob:none origin $(PKG_VERSION)
+	$(Q)$(GIT_IN_PKG) checkout $(GIT_QUIET) $(PKG_VERSION) 2>&1 | cat
+endif
 
 ifeq ($(PKG_SOURCE_DIR),$(PKG_BUILD_DIR))
 # This is the case for packages that are built within their source directory

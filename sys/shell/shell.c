@@ -13,11 +13,12 @@
  * @{
  *
  * @file
- * @brief       Implementation of a very simple command interpreter.
+ * @brief       Implementation of a simple command interpreter.
  *              For each command (i.e. "echo"), a handler can be specified.
  *              If the first word of a user-entered command line matches the
- *              name of a handler, the handler will be called with the whole
- *              command line as parameter.
+ *              name of a handler, the handler will be called with the remaining
+ *              arguments passed in a manner similar to `main()`'s argc/argv
+ *              parameters.
  *
  * @author      Kaspar Schleiser <kaspar@schleiser.de>
  * @author      René Kijewski <rene.kijewski@fu-berlin.de>
@@ -35,13 +36,17 @@
 #include <assert.h>
 #include <errno.h>
 
-#include "kernel_defines.h"
 #include "xfa.h"
 #include "shell.h"
-#include "shell_commands.h"
+#include "shell_lock.h"
+
+#ifdef MODULE_VFS
+#include <fcntl.h>
+#include "vfs.h"
+#endif
 
 /* define shell command cross file array */
-XFA_INIT_CONST(shell_command_t*, shell_commands_xfa);
+XFA_INIT_CONST(shell_command_xfa_t, shell_commands_xfa_v2);
 
 #define ETX '\x03'  /** ASCII "End-of-Text", or Ctrl-C */
 #define EOT '\x04'  /** ASCII "End-of-Transmission", or Ctrl-D */
@@ -54,12 +59,6 @@ XFA_INIT_CONST(shell_command_t*, shell_commands_xfa);
     #define flush_if_needed()
 #endif /* MODULE_NEWLIB || MODULE_PICOLIBC */
 
-#ifdef MODULE_SHELL_COMMANDS
-    #define _builtin_cmds _shell_command_list
-#else
-    #define _builtin_cmds NULL
-#endif
-
 #define SQUOTE '\''
 #define DQUOTE '"'
 #define ESCAPECHAR '\\'
@@ -67,6 +66,10 @@ XFA_INIT_CONST(shell_command_t*, shell_commands_xfa);
 #define TAB '\t'
 
 #define PARSE_ESCAPE_MASK 0x4;
+
+extern void shell_lock_checkpoint(char *line_buf, int len);
+extern bool shell_lock_is_locked(void);
+extern void shell_lock_auto_lock_refresh(void);
 
 enum parse_state {
     PARSE_BLANK             = 0x0,
@@ -98,11 +101,11 @@ static shell_command_handler_t search_commands(const shell_command_t *entry,
 
 static shell_command_handler_t search_commands_xfa(char *command)
 {
-    unsigned n = XFA_LEN(shell_command_t*, shell_commands_xfa);
+    unsigned n = XFA_LEN(shell_command_t, shell_commands_xfa_v2);
 
     for (unsigned i = 0; i < n; i++) {
-        const volatile shell_command_t *entry = shell_commands_xfa[i];
-        if (strcmp(entry->name, command) == 0) {
+        const volatile shell_command_xfa_t *entry = &shell_commands_xfa_v2[i];
+        if (flash_strcmp(command, entry->name) == 0) {
             return entry->handler;
         }
     }
@@ -113,12 +116,9 @@ static shell_command_handler_t find_handler(
         const shell_command_t *command_list, char *command)
 {
     shell_command_handler_t handler = NULL;
+
     if (command_list != NULL) {
         handler = search_commands(command_list, command);
-    }
-
-    if (handler == NULL && _builtin_cmds != NULL) {
-        handler = search_commands(_builtin_cmds, command);
     }
 
     if (handler == NULL) {
@@ -126,6 +126,38 @@ static shell_command_handler_t find_handler(
     }
 
     return handler;
+}
+
+static void print_commands_json(const shell_command_t *cmd_list)
+{
+    bool first = true;
+
+    printf("{\"cmds\": [");
+
+    if (cmd_list) {
+        for (const shell_command_t *entry = cmd_list; entry->name != NULL; entry++) {
+            if (first) {
+                first = false;
+            }
+            else {
+                printf(", ");
+            }
+            printf("{\"cmd\": \"%s\", \"desc\": \"%s\"}", entry->name, entry->desc);
+        }
+    }
+
+    unsigned n = XFA_LEN(shell_command_xfa_t, shell_commands_xfa_v2);
+    for (unsigned i = 0; i < n; i++) {
+        if (first) {
+            first = false;
+        }
+        else {
+            printf(", ");
+        }
+        const volatile shell_command_xfa_t *entry = &shell_commands_xfa_v2[i];
+        printf("{\"cmd\": \"%s\", \"desc\": \"%s\"}", entry->name, entry->desc);
+    }
+    puts("]}");
 }
 
 static void print_commands(const shell_command_t *entry)
@@ -137,23 +169,20 @@ static void print_commands(const shell_command_t *entry)
 
 static void print_commands_xfa(void)
 {
-    unsigned n = XFA_LEN(shell_command_t*, shell_commands_xfa);
+    unsigned n = XFA_LEN(shell_command_xfa_t, shell_commands_xfa_v2);
     for (unsigned i = 0; i < n; i++) {
-        const volatile shell_command_t *entry = shell_commands_xfa[i];
-        printf("%-20s %s\n", entry->name, entry->desc);
+        const volatile shell_command_xfa_t *entry = &shell_commands_xfa_v2[i];
+        printf("%-20" PRIsflash " %" PRIsflash "\n",
+                     entry->name, entry->desc);
     }
 }
 
 static void print_help(const shell_command_t *command_list)
 {
-    puts("Command              Description"
-         "\n---------------------------------------");
+    printf("Command              Description\n"
+           "---------------------------------------\n");
     if (command_list != NULL) {
         print_commands(command_list);
-    }
-
-    if (_builtin_cmds != NULL) {
-        print_commands(_builtin_cmds);
     }
 
     print_commands_xfa();
@@ -213,7 +242,7 @@ static void print_help(const shell_command_t *command_list)
  *
  *
  */
-static void handle_input_line(const shell_command_t *command_list, char *line)
+int shell_handle_input_line(const shell_command_t *command_list, char *line)
 {
     /* first we need to calculate the number of arguments */
     int argc = 0;
@@ -303,23 +332,29 @@ static void handle_input_line(const shell_command_t *command_list, char *line)
     *writepos = '\0';
 
     if (pstate != PARSE_BLANK && pstate != PARSE_UNQUOTED) {
-        puts("shell: incorrect quoting");
-        return;
+        printf("shell: incorrect quoting\n");
+        return -EINVAL;
     }
 
     if (argc == 0) {
-        return;
+        return 0;
     }
 
     /* then we fill the argv array */
     int collected;
-    char *argv[argc];
+
+    /* allocate argv on the stack leaving space for NULL termination */
+    char *argv[argc + 1];
 
     readpos = line;
     for (collected = 0; collected < argc; collected++) {
         argv[collected] = readpos;
         readpos += strlen(readpos) + 1;
     }
+
+    /* NULL terminate argv. See `shell_command_handler_t` doc in shell.h for
+       rationale. */
+    argv[argc] = NULL;
 
     /* then we call the appropriate handler */
     shell_command_handler_t handler = find_handler(command_list, argv[0]);
@@ -328,19 +363,27 @@ static void handle_input_line(const shell_command_t *command_list, char *line)
             shell_pre_command_hook(argc, argv);
             int res = handler(argc, argv);
             shell_post_command_hook(res, argc, argv);
+            return res;
         }
         else {
-            handler(argc, argv);
+            return handler(argc, argv);
         }
     }
     else {
         if (strcmp("help", argv[0]) == 0) {
             print_help(command_list);
+            return 0;
+        }
+        else if (IS_USED(MODULE_SHELL_BUILTIN_CMD_HELP_JSON)
+                 && !strcmp("help_json", argv[0])) {
+            print_commands_json(command_list);
         }
         else {
             printf("shell: command not found: %s\n", argv[0]);
         }
     }
+
+    return -ENOEXEC;
 }
 
 __attribute__((weak)) void shell_post_readline_hook(void)
@@ -419,7 +462,7 @@ static inline void new_line(void)
  * @return  EOF, if the end of the input stream was reached.
  * @return  -ENOBUFS if the buffer size was exceeded.
  */
-static int readline(char *buf, size_t size)
+int readline(char *buf, size_t size) /* needed externally by module shell_lock */
 {
     int curr_pos = 0;
     bool length_exceeded = false;
@@ -486,25 +529,84 @@ static int readline(char *buf, size_t size)
 void shell_run_once(const shell_command_t *shell_commands,
                     char *line_buf, int len)
 {
+    if (IS_USED(MODULE_SHELL_LOCK)) {
+        shell_lock_checkpoint(line_buf, len);
+    }
+
     print_prompt();
 
     while (1) {
         int res = readline(line_buf, len);
 
+        if (IS_USED(MODULE_SHELL_LOCK)) {
+            if (shell_lock_is_locked()) {
+                break;
+            }
+        }
+
+        if (IS_USED(MODULE_SHELL_LOCK_AUTO_LOCKING)) {
+            /* reset lock countdown in case of new input */
+            shell_lock_auto_lock_refresh();
+        }
+
         switch (res) {
 
             case EOF:
+                if (IS_USED(MODULE_SHELL_LOCK)) {
+                    shell_lock_do_lock();
+                }
                 return;
 
             case -ENOBUFS:
-                puts("shell: maximum line length exceeded");
+                printf("shell: maximum line length exceeded\n");
                 break;
 
             default:
-                handle_input_line(shell_commands, line_buf);
+                shell_handle_input_line(shell_commands, line_buf);
                 break;
         }
 
         print_prompt();
     }
 }
+
+#ifdef MODULE_VFS
+int shell_parse_file(const shell_command_t *shell_commands,
+                     const char *filename, unsigned *line_nr)
+{
+    char buffer[SHELL_DEFAULT_BUFSIZE];
+
+    if (line_nr) {
+        *line_nr = 0;
+    }
+
+    int res, fd = vfs_open(filename, O_RDONLY, 0);
+    if (fd < 0) {
+        printf("Can't open %s\n", filename);
+        return fd;
+    }
+
+    while (1) {
+        res = vfs_readline(fd, buffer, sizeof(buffer));
+        if (line_nr) {
+            *line_nr += 1;
+        }
+        /* error reading line */
+        if (res < 0) {
+            break;
+        }
+        /* skip comment and empty lines */
+        if (buffer[0] == '#') {
+            continue;
+        }
+        res = shell_handle_input_line(shell_commands, buffer);
+        if (res) {
+            break;
+        }
+    }
+
+    vfs_close(fd);
+
+    return res;
+}
+#endif

@@ -77,6 +77,25 @@ extern "C" {
 #endif
 
 /**
+ * @brief Index of the high priority queue
+ */
+#define GNRC_NETIF_EVQ_INDEX_PRIO_HIGH  (0)
+
+/**
+ * @brief Index of the low priority queue
+ */
+#if IS_USED(MODULE_BHP_EVENT)
+#define GNRC_NETIF_EVQ_INDEX_PRIO_LOW   (GNRC_NETIF_EVQ_INDEX_PRIO_HIGH + 1)
+#else
+#define GNRC_NETIF_EVQ_INDEX_PRIO_LOW   GNRC_NETIF_EVQ_INDEX_PRIO_HIGH
+#endif
+
+/**
+ * @brief Number of event queues
+ */
+#define GNRC_NETIF_EVQ_NUMOF            (GNRC_NETIF_EVQ_INDEX_PRIO_LOW + 1)
+
+/**
  * @brief   Per-Interface Event Message Buses
  */
 typedef enum {
@@ -118,7 +137,7 @@ typedef struct {
     const gnrc_netif_ops_t *ops;            /**< Operations of the network interface */
     netdev_t *dev;                          /**< Network device of the network interface */
     rmutex_t mutex;                         /**< Mutex of the interface */
-#ifdef MODULE_NETSTATS_L2
+#if IS_USED(MODULE_NETSTATS_L2) || defined(DOXYGEN)
     netstats_t stats;                       /**< transceiver's statistics */
 #endif
 #if IS_USED(MODULE_GNRC_NETIF_LORAWAN) || defined(DOXYGEN)
@@ -139,16 +158,30 @@ typedef struct {
      * @see net_gnrc_netif_flags
      */
     uint32_t flags;
-#if IS_USED(MODULE_GNRC_NETIF_EVENTS) || defined(DOXYGEN)
     /**
      * @brief   Event queue for asynchronous events
      */
-    event_queue_t evq;
+    event_queue_t evq[GNRC_NETIF_EVQ_NUMOF];
     /**
      * @brief   ISR event for the network device
      */
     event_t event_isr;
-#endif /* MODULE_GNRC_NETIF_EVENTS */
+#if IS_USED(MODULE_NETDEV_NEW_API) || defined(DOXYGEN)
+    /**
+     * @brief   TX done event for the network device
+     *
+     * @details Only provided with module `netdev_new_api`
+     */
+    event_t event_tx_done;
+    /**
+     * @brief   Outgoing frame that is currently transmitted
+     *
+     * @details Only provided with module `netdev_new_api`
+     *
+     * This needs to be freed by gnrc_netif once TX is done
+     */
+    gnrc_pktsnip_t *tx_pkt;
+#endif
 #if (GNRC_NETIF_L2ADDR_MAXLEN > 0) || DOXYGEN
     /**
      * @brief   The link-layer address currently used as the source address
@@ -184,31 +217,90 @@ typedef struct {
      */
     gnrc_netif_pktq_t send_queue;
 #endif
+    /**
+     * @brief   Message queue for the netif thread
+     */
+    msg_t msg_queue[GNRC_NETIF_MSG_QUEUE_SIZE];
     uint8_t cur_hl;                         /**< Current hop-limit for out-going packets */
     uint8_t device_type;                    /**< Device type */
     kernel_pid_t pid;                       /**< PID of the network interface's thread */
 } gnrc_netif_t;
 
 /**
+ * @brief   Check if the device belonging to the given netif uses the legacy
+ *          netdev API
+ *
+ * Check @ref netdev_driver_t::confirm_send for info about the old and new
+ * netdev API.
+ *
+ * netdevs using the legacy API have to depend on the (pseudo-)module
+ * netdev_legaqcy_api, netdevs using the new API have to depend on the
+ * (pseudo-)module netdev_new_api. If only one of the pseudo modules is used,
+ * this function can be constant folded. For boards mixing legacy and new API
+ * netdevs, this will check the flavor at runtime.
+ *
+ * @see netdev_driver_t::confirm_send
+ */
+static inline bool gnrc_netif_netdev_legacy_api(gnrc_netif_t *netif)
+{
+    if (!IS_USED(MODULE_NETDEV_NEW_API) && !IS_USED(MODULE_NETDEV_LEGACY_API)) {
+        /* this should only happen for external netdevs or when no netdev is
+         * used (e.g. examples/gcoap can be used without any netdev, as still
+         * CoAP requests to ::1 can be send */
+        return true;
+    }
+
+    if (!IS_USED(MODULE_NETDEV_NEW_API)) {
+        return true;
+    }
+
+    if (!IS_USED(MODULE_NETDEV_LEGACY_API)) {
+        return false;
+    }
+
+    /* both legacy and new API netdevs in use, fall back to runtime test: */
+    return (netif->dev->driver->confirm_send == NULL);
+}
+
+/**
+ * @brief   Check if the device belonging to the given netif uses the new
+ *          netdev API
+ *
+ * @see gnrc_netif_netdev_legacy_api
+ *
+ * @see netdev_driver_t::confirm_send
+ */
+static inline bool gnrc_netif_netdev_new_api(gnrc_netif_t *netif)
+{
+    return !gnrc_netif_netdev_legacy_api(netif);
+}
+
+/**
  * @see gnrc_netif_ops_t
  */
 struct gnrc_netif_ops {
     /**
-     * @brief   Initializes network interface beyond the default settings
+     * @brief   Initializes and registers network interface.
      *
      * @pre `netif != NULL`
      *
      * @param[in] netif The network interface.
      *
-     * This is called after the network device's initial configuration, right
-     * before the interface's thread starts receiving messages. It is not
-     * necessary to lock the interface's mutex gnrc_netif_t::mutex, since it is
-     * already locked. Set to @ref gnrc_netif_default_init() if you do not need
-     * any special initialization. If you do need special initialization, it is
-     * recommended to call @ref gnrc_netif_default_init() at the start of the
-     * custom initialization function set here.
+     * This function should init the device driver or MAC underlying MAC layer.
+     * This is called right before the interface's thread starts receiving
+     * messages. It is not necessary to lock the interface's mutex
+     * gnrc_netif_t::mutex, since it is already locked. Set to @ref
+     * gnrc_netif_default_init() if you do not need any special initialization.
+     * If you do need special initialization, it is recommended to call @ref
+     * gnrc_netif_default_init() at the start of the custom initialization
+     * function set here. This function MUST call @ref netif_register if the
+     * initialization is successful.
+     *
+     * @return 0 if the initialization of the device or MAC layer was
+     * successful
+     * @return negative errno on error.
      */
-    void (*init)(gnrc_netif_t *netif);
+    int (*init)(gnrc_netif_t *netif);
 
     /**
      * @brief   Send a @ref net_gnrc_pkt "packet" over the network interface
@@ -386,8 +478,9 @@ gnrc_netif_t *gnrc_netif_get_by_pid(kernel_pid_t pid);
  *                      @p CONFIG_GNRC_NETIF_IPV6_ADDRS_NUMOF `* sizeof(ipv6_addr_t)
  *                      here (and have @p addrs of the according length).
  *
- * @return  Number of addresses in @p addrs times `sizeof(ipv6_addr_t)` on
- *          success (including 0).
+ * @return  Size of the array of addresses in @p addrs on success.
+ *          (number of addresses times `sizeof(ipv6_addr_t)`)
+ *          May be 0 if no addresses are configured.
  * @return  -ENOTSUP, if @p netif doesn't support IPv6.
  */
 static inline int gnrc_netif_ipv6_addrs_get(const gnrc_netif_t *netif,
@@ -422,7 +515,7 @@ static inline int gnrc_netif_ipv6_addrs_get(const gnrc_netif_t *netif,
  * @return  -ENOTSUP, if @p netif doesn't support IPv6.
  */
 static inline int gnrc_netif_ipv6_addr_add(const gnrc_netif_t *netif,
-                                           ipv6_addr_t *addr, unsigned pfx_len,
+                                           const ipv6_addr_t *addr, unsigned pfx_len,
                                            uint8_t flags)
 {
     assert(netif != NULL);
@@ -447,7 +540,7 @@ static inline int gnrc_netif_ipv6_addr_add(const gnrc_netif_t *netif,
  * @return  -ENOTSUP, if @p netif doesn't support IPv6.
  */
 static inline int gnrc_netif_ipv6_addr_remove(const gnrc_netif_t *netif,
-                                              ipv6_addr_t *addr)
+                                              const ipv6_addr_t *addr)
 {
     assert(netif != NULL);
     assert(addr != NULL);
@@ -500,7 +593,7 @@ static inline int gnrc_netif_ipv6_groups_get(const gnrc_netif_t *netif,
  * @return  -ENOTSUP, if @p netif doesn't support IPv6.
  */
 static inline int gnrc_netif_ipv6_group_join(const gnrc_netif_t *netif,
-                                             ipv6_addr_t *group)
+                                             const ipv6_addr_t *group)
 {
     assert(netif != NULL);
     assert(group != NULL);
@@ -522,7 +615,7 @@ static inline int gnrc_netif_ipv6_group_join(const gnrc_netif_t *netif,
  * @return  -ENOTSUP, if @p netif doesn't support IPv6.
  */
 static inline int gnrc_netif_ipv6_group_leave(const gnrc_netif_t *netif,
-                                              ipv6_addr_t *group)
+                                              const ipv6_addr_t *group)
 {
     assert(netif != NULL);
     assert(group != NULL);
@@ -533,11 +626,12 @@ static inline int gnrc_netif_ipv6_group_leave(const gnrc_netif_t *netif,
 /**
  * @brief   Default operation for gnrc_netif_ops_t::init()
  *
- * @note    Can also be used to be called *before* a custom operation.
+ * @note    Can also be used to be called *before* a custom operation. This
+ *          function calls @ref netif_register internally.
  *
  * @param[in] netif     The network interface.
  */
-void gnrc_netif_default_init(gnrc_netif_t *netif);
+int gnrc_netif_default_init(gnrc_netif_t *netif);
 
 /**
  * @brief   Default operation for gnrc_netif_ops_t::get()
@@ -656,6 +750,23 @@ static inline msg_bus_t* gnrc_netif_get_bus(gnrc_netif_t *netif,
     assert(type < GNRC_NETIF_BUS_NUMOF);
     return &netif->bus[type];
 }
+
+/**
+ * @brief   Wait for a global address to become available.
+ *          This function blocks until a valid global address has been
+ *          configured, e.g. by receiving a router advertisement or via DHCPv6.
+ *
+ *          Requires the `gnrc_netif_bus` module.
+ *
+ * @param netif         pointer to the interface
+ *                      May be NULL, then this checks for a global address
+ *                      on *any* interface.
+ * @param timeout_ms    Time to wait for an address to become available, in ms.
+ *
+ * @return              true if a global address is configured
+ */
+bool gnrc_netif_ipv6_wait_for_global_address(gnrc_netif_t *netif,
+                                             uint32_t timeout_ms);
 #endif /* MODULE_GNRC_NETIF_BUS */
 
 #ifdef __cplusplus

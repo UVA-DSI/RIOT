@@ -56,7 +56,6 @@ static const dma_conf_t dma_config[] = {
 #define DMA_NUMOF           ARRAY_SIZE(dma_config)
 /** @} */
 
-
 /**
  * @name    Timer configuration
  * @{
@@ -188,7 +187,7 @@ static const spi_conf_t spi_config[] = {
         .mosi_pin = GPIO_PIN(PORT_A, 7),
         .miso_pin = GPIO_PIN(PORT_A, 6),
         .sclk_pin = GPIO_PIN(PORT_A, 5),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .mosi_af  = GPIO_AF5,
         .miso_af  = GPIO_AF5,
         .sclk_af  = GPIO_AF5,
@@ -208,10 +207,31 @@ static const spi_conf_t spi_config[] = {
 /** @} */
 
 /**
- * @name    ADC configuration
+ * @brief    ADC configuration
  *
- * configure only  ADC channels for the Arduino header pins A0-A5
+ * Note that we do not configure all ADC channels,
+ * and not in the STM32L476RG order. Instead, we
+ * just define 6 ADC channels, for the Nucleo
+ * Arduino header pins A0-A5 and the internal VBAT channel.
  *
+ * To find appropriate device and channel find in the
+ * board manual, table showing pin assignments and
+ * information about ADC - a text similar to ADC[X]_IN[Y],
+ * where:
+ * [X] - describes used device - indexed from 0,
+ * for example ADC1_IN10 is device 0,
+ * [Y] - describes used channel - indexed from 1,
+ * for example ADC1_IN10 is channel 10
+ *
+ * For Nucleo-L476RG this information is in board manual,
+ * Table 23, page 52.
+ *
+ * VBAT is connected ADC1_IN18 or ADC3_IN18 and a voltage divider
+ * is used, so that only 1/3 of the actual VBAT is measured. This
+ * allows for a supply voltage higher than the reference voltage.
+ *
+ * For Nucleo-L476RG more information is provided in MCU datasheet,
+ * in section 3.15.3 - Vbat battery voltage monitoring, page 42.
  * @{
  */
 static const adc_conf_t adc_config[] = {
@@ -219,10 +239,12 @@ static const adc_conf_t adc_config[] = {
     {GPIO_PIN(PORT_A, 1), 0, 6},  /*< ADC12_IN6 */
     {GPIO_PIN(PORT_A, 4), 1, 9},  /*< ADC12_IN9 */
     {GPIO_PIN(PORT_B, 0), 1, 15}, /*< ADC12_IN15 */
-    {GPIO_PIN(PORT_C, 1), 2, 2},  /*< ADC123_IN_2 */
-    {GPIO_PIN(PORT_C, 0), 2, 1},  /*< ADC123_IN_1 */
+    {GPIO_PIN(PORT_C, 1), 2, 2},  /*< ADC123_IN2 */
+    {GPIO_PIN(PORT_C, 0), 2, 1},  /*< ADC123_IN1 */
+    {GPIO_UNDEF, 0, 18}, /* VBAT */
 };
 
+#define VBAT_ADC            ADC_LINE(6) /**< VBAT ADC line */
 #define ADC_NUMOF           ARRAY_SIZE(adc_config)
 /** @} */
 

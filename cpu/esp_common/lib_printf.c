@@ -46,6 +46,16 @@ static int _lib_printf(int level, const char* tag, const char* format, va_list a
 
     int len = vsnprintf(_printf_buf, PRINTF_BUFSIZ - 1, format, arg);
 
+    if (len < 0) {
+        ESP_EARLY_LOGI(tag, "Failed to format print");
+        return 0;
+    }
+
+    /* Did the output get truncated? */
+    if ((unsigned) len > PRINTF_BUFSIZ - 1) {
+        len = PRINTF_BUFSIZ - 1;
+    }
+
     /*
      * Since ESP_EARLY_LOG macros add a line break at the end, a terminating
      * line break in the output must be removed if there is one.
@@ -69,9 +79,12 @@ LIB_PRINTF(coexist, LOG_DEBUG, "coexist")
 LIB_PRINTF(core, LOG_DEBUG, "core")
 LIB_PRINTF(espnow, LOG_DEBUG, "espnow")
 LIB_PRINTF(net80211, LOG_DEBUG, "net80211")
-LIB_PRINTF(phy, LOG_INFO, "core")
+LIB_PRINTF(phy, LOG_DEBUG, "phy")
 LIB_PRINTF(pp, LOG_DEBUG, "pp")
 LIB_PRINTF(sc, LOG_DEBUG, "smartconfig")
+/* The ESP8266 SDK uses smartconfig_printf but the ESP32 one uses sc_printf. */
+int smartconfig_printf(const char *format, ...)
+    __attribute__((alias("sc_printf")));
 LIB_PRINTF(ssc, LOG_DEBUG, "ssc")
 LIB_PRINTF(wpa, LOG_DEBUG, "wpa")
 LIB_PRINTF(wpa2, LOG_DEBUG, "wpa")

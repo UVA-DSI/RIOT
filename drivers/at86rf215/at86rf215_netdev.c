@@ -22,6 +22,7 @@
 #include <assert.h>
 #include <errno.h>
 
+#include "byteorder.h"
 #include "iolist.h"
 
 #include "net/eui64.h"
@@ -44,9 +45,11 @@ static int _init(netdev_t *netdev);
 static void _isr(netdev_t *netdev);
 static int _get(netdev_t *netdev, netopt_t opt, void *val, size_t max_len);
 static int _set(netdev_t *netdev, netopt_t opt, const void *val, size_t len);
+static int _confirm_send(netdev_t *netdev, void *info);
 
 const netdev_driver_t at86rf215_driver = {
     .send = _send,
+    .confirm_send = _confirm_send,
     .recv = _recv,
     .init = _init,
     .isr = _isr,
@@ -69,6 +72,7 @@ static bool _is_busy(at86rf215_t *dev)
     return false;
 }
 
+__attribute__((unused))
 static uint8_t _get_best_match(const uint8_t *array, uint8_t len, uint8_t val)
 {
     uint8_t res = 0;
@@ -86,7 +90,7 @@ static uint8_t _get_best_match(const uint8_t *array, uint8_t len, uint8_t val)
 /* executed in the GPIO ISR context */
 static void _irq_handler(void *arg)
 {
-    netdev_t *netdev = (netdev_t *) arg;
+    netdev_t *netdev = arg;
 
     netdev->event_callback(netdev, NETDEV_EVENT_ISR);
 }
@@ -103,7 +107,8 @@ static inline void _put_sibling_to_sleep(at86rf215_t *dev) {
 static int _init(netdev_t *netdev)
 {
     int res;
-    at86rf215_t *dev = (at86rf215_t *)netdev;
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
 
     /* don't call HW init for both radios */
     if (is_subGHz(dev) || dev->sibling == NULL) {
@@ -134,16 +139,20 @@ static int _init(netdev_t *netdev)
     /* reset device to default values and put it into RX state */
     at86rf215_reset_and_cfg(dev);
 
+    /* signal link UP */
+    netdev->event_callback(netdev, NETDEV_EVENT_LINK_UP);
+
     return 0;
 }
 
 static int _send(netdev_t *netdev, const iolist_t *iolist)
 {
-    at86rf215_t *dev = (at86rf215_t *)netdev;
-    size_t len = 0;
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
 
-    if (at86rf215_tx_prepare(dev)) {
-        return -EBUSY;
+    ssize_t len = at86rf215_tx_prepare(dev);
+    if (len) {
+        return len;
     }
 
     /* load packet data into FIFO */
@@ -151,8 +160,8 @@ static int _send(netdev_t *netdev, const iolist_t *iolist)
 
         /* current packet data + FCS too long */
         if ((len + iol->iol_len + IEEE802154_FCS_LEN) > AT86RF215_MAX_PKT_LENGTH) {
-            DEBUG("[at86rf215] error: packet too large (%u byte) to be send\n",
-                  (unsigned)len + IEEE802154_FCS_LEN);
+            DEBUG("[at86rf215] error: packet too large (%" PRIuSIZE
+                  " byte) to be send\n", len + IEEE802154_FCS_LEN);
             at86rf215_tx_abort(dev);
             return -EOVERFLOW;
         }
@@ -167,14 +176,28 @@ static int _send(netdev_t *netdev, const iolist_t *iolist)
         at86rf215_tx_exec(dev);
     }
 
-    /* return the number of bytes that were actually loaded into the frame
-     * buffer/send out */
-    return (int)len;
+    /* netdev_new just returns 0 on success */
+    return 0;
+}
+
+static int _confirm_send(netdev_t *netdev, void *info)
+{
+    (void)info;
+
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
+
+    if (dev->flags & AT86RF215_OPT_TX_PENDING) {
+        return -EAGAIN;
+    }
+
+    return (int16_t)dev->tx_frame_len;
 }
 
 static int _recv(netdev_t *netdev, void *buf, size_t len, void *info)
 {
-    at86rf215_t *dev = (at86rf215_t *)netdev;
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
     int16_t pkt_len;
 
     /* get the size of the received packet */
@@ -200,14 +223,14 @@ static int _recv(netdev_t *netdev, void *buf, size_t len, void *info)
         netdev_ieee802154_rx_info_t *radio_info = info;
         radio_info->rssi = (int8_t) at86rf215_reg_read(dev, dev->RF->RG_EDV);
 
-        if (IS_USED(MODULE_AT86RF215_TIMESTAMP)) {
+        if (IS_USED(MODULE_NETDEV_IEEE802154_RX_TIMESTAMP)) {
             uint32_t rx_timestamp;
             at86rf215_reg_read_bytes(dev, dev->BBC->RG_CNT0, &rx_timestamp,
                                     sizeof(rx_timestamp));
 
             /* convert counter value to ns */
-            radio_info->timestamp = rx_timestamp * 1000ULL / 32;
-            radio_info->flags |= NETDEV_RX_IEEE802154_INFO_FLAG_TIMESTAMP;
+            uint64_t res = rx_timestamp * 1000ULL / 32;
+            netdev_ieee802154_rx_info_set_timestamp(radio_info, res);
         }
     }
 
@@ -265,7 +288,8 @@ static netopt_state_t _get_state(at86rf215_t *dev)
 
 static int _get(netdev_t *netdev, netopt_t opt, void *val, size_t max_len)
 {
-    at86rf215_t *dev = (at86rf215_t *) netdev;
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
 
     if (netdev == NULL) {
         return -ENODEV;
@@ -297,9 +321,7 @@ static int _get(netdev_t *netdev, netopt_t opt, void *val, size_t max_len)
             return sizeof(netopt_enable_t);
 
         case NETOPT_RX_START_IRQ:
-        case NETOPT_RX_END_IRQ:
         case NETOPT_TX_START_IRQ:
-        case NETOPT_TX_END_IRQ:
             *((netopt_enable_t *)val) = NETOPT_ENABLE;
             return sizeof(netopt_enable_t);
 
@@ -360,8 +382,9 @@ static int _get(netdev_t *netdev, netopt_t opt, void *val, size_t max_len)
 
     int res;
 
-    if (((res = netdev_ieee802154_get((netdev_ieee802154_t *)netdev, opt, val,
-                                      max_len)) >= 0) || (res != -ENOTSUP)) {
+    if (((res = netdev_ieee802154_get(container_of(netdev, netdev_ieee802154_t, netdev),
+                                      opt, val, max_len)) >= 0)
+        || (res != -ENOTSUP)) {
         return res;
     }
 
@@ -488,7 +511,8 @@ static int _get(netdev_t *netdev, netopt_t opt, void *val, size_t max_len)
 
 static int _set(netdev_t *netdev, netopt_t opt, const void *val, size_t len)
 {
-    at86rf215_t *dev = (at86rf215_t *) netdev;
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
     int res = -ENOTSUP;
 
     if (dev == NULL) {
@@ -813,7 +837,8 @@ static int _set(netdev_t *netdev, netopt_t opt, const void *val, size_t len)
     }
 
     if (res == -ENOTSUP) {
-        res = netdev_ieee802154_set((netdev_ieee802154_t *)netdev, opt, val, len);
+        res = netdev_ieee802154_set(container_of(netdev, netdev_ieee802154_t, netdev),
+                                    opt, val, len);
     }
 
     return res;
@@ -830,9 +855,9 @@ static void _enable_tx2rx(at86rf215_t *dev)
     at86rf215_reg_write(dev, dev->BBC->RG_AMCS, amcs);
 }
 
-static void _tx_end(at86rf215_t *dev, netdev_event_t event)
+static void _tx_end(at86rf215_t *dev)
 {
-    netdev_t *netdev = (netdev_t *)dev;
+    netdev_t *netdev = &dev->netdev.netdev;
 
     /* listen to non-ACK packets again */
     if (dev->flags & AT86RF215_OPT_ACK_REQUESTED) {
@@ -843,23 +868,35 @@ static void _tx_end(at86rf215_t *dev, netdev_event_t event)
     at86rf215_tx_done(dev);
 
     if (netdev->event_callback) {
-        netdev->event_callback(netdev, event);
+        netdev->event_callback(netdev, NETDEV_EVENT_TX_COMPLETE);
     }
 
     dev->timeout = 0;
     dev->state = AT86RF215_STATE_IDLE;
 }
 
+static void __tx_end_timeout(at86rf215_t *dev)
+{
+    /* signal error to confirm_send */
+    dev->tx_frame_len = (int16_t)-EHOSTUNREACH;
+
+    _tx_end(dev);
+}
+
 static void _ack_timeout_cb(void* arg) {
     at86rf215_t *dev = arg;
+    netdev_t *netdev = &dev->netdev.netdev;
+
     dev->timeout = AT86RF215_TIMEOUT_ACK;
-    msg_send_int(&dev->timer_msg, dev->timer_msg.sender_pid);
+    netdev->event_callback(netdev, NETDEV_EVENT_ISR);
 }
 
 static void _backoff_timeout_cb(void* arg) {
     at86rf215_t *dev = arg;
+    netdev_t *netdev = &dev->netdev.netdev;
+
     dev->timeout = AT86RF215_TIMEOUT_CSMA;
-    msg_send_int(&dev->timer_msg, dev->timer_msg.sender_pid);
+    netdev->event_callback(netdev, NETDEV_EVENT_ISR);
 }
 
 static void _set_idle(at86rf215_t *dev)
@@ -880,9 +917,6 @@ static void _set_idle(at86rf215_t *dev)
 /* wake up the radio thread after ACK timeout */
 static void _start_ack_timer(at86rf215_t *dev)
 {
-    dev->timer_msg.type = NETDEV_MSG_TYPE_EVENT;
-    dev->timer_msg.sender_pid = thread_getpid();
-
     dev->timer.arg = dev;
     dev->timer.callback = _ack_timeout_cb;
 
@@ -910,9 +944,6 @@ static void _start_backoff_timer(at86rf215_t *dev)
 
     DEBUG("Set CSMA backoff to %"PRIu32" (be %u min %u max %u base: %"PRIu32")\n",
           csma_backoff_usec, be, dev->csma_minbe, dev->csma_maxbe, base);
-
-    dev->timer_msg.type = NETDEV_MSG_TYPE_EVENT;
-    dev->timer_msg.sender_pid = thread_getpid();
 
     dev->timer.arg = dev;
     dev->timer.callback = _backoff_timeout_cb;
@@ -943,7 +974,7 @@ static void _handle_ack_timeout(at86rf215_t *dev)
         at86rf215_rf_cmd(dev, CMD_RF_TXPREP);
     } else {
         /* no retransmissions left */
-        _tx_end(dev, NETDEV_EVENT_TX_NOACK);
+        __tx_end_timeout(dev);
     }
 }
 
@@ -960,7 +991,7 @@ static inline void _clear_sibling_irq(at86rf215_t *dev) {
 
 static void _handle_edc(at86rf215_t *dev)
 {
-    netdev_t *netdev = (netdev_t *) dev;
+    netdev_t *netdev = &dev->netdev.netdev;
 
     /* In CCATX mode this function is only triggered if busy */
     if (!(dev->flags & AT86RF215_OPT_CCATX)) {
@@ -986,7 +1017,9 @@ static void _handle_edc(at86rf215_t *dev)
         at86rf215_enable_rpc(dev);
         at86rf215_tx_done(dev);
 
-        netdev->event_callback(netdev, NETDEV_EVENT_TX_MEDIUM_BUSY);
+        /* signal error to confirm_send */
+        dev->tx_frame_len = (int16_t)-EBUSY;
+        netdev->event_callback(netdev, NETDEV_EVENT_TX_COMPLETE);
 
         DEBUG("CSMA give up");
         /* radio is still in RX mode, tx_done sets IDLE state */
@@ -996,7 +1029,8 @@ static void _handle_edc(at86rf215_t *dev)
 /* executed in the radio thread */
 static void _isr(netdev_t *netdev)
 {
-    at86rf215_t *dev = (at86rf215_t *) netdev;
+    netdev_ieee802154_t *netdev_ieee802154 = container_of(netdev, netdev_ieee802154_t, netdev);
+    at86rf215_t *dev = container_of(netdev_ieee802154, at86rf215_t, netdev);
     uint8_t bb_irq_mask, rf_irq_mask;
     uint8_t bb_irqs_enabled = BB_IRQ_RXFE | BB_IRQ_TXFE;
 
@@ -1035,7 +1069,7 @@ static void _isr(netdev_t *netdev)
     /* If the interrupt pin is still high, there was an IRQ on the other radio */
     if (gpio_read(dev->params.int_pin)) {
         if (dev->sibling && dev->sibling->state != AT86RF215_STATE_OFF) {
-            netdev->event_callback((netdev_t *) dev->sibling, NETDEV_EVENT_ISR);
+            netdev->event_callback(&dev->sibling->netdev.netdev, NETDEV_EVENT_ISR);
         } else {
             _clear_sibling_irq(dev);
         }
@@ -1199,7 +1233,7 @@ static void _isr(netdev_t *netdev)
             dev->state = AT86RF215_STATE_TX_WAIT_ACK;
             _start_ack_timer(dev);
         } else {
-            _tx_end(dev, NETDEV_EVENT_TX_COMPLETE);
+            _tx_end(dev);
         }
         break;
 
@@ -1220,7 +1254,7 @@ static void _isr(netdev_t *netdev)
         if (_ack_frame_received(dev)) {
             timeout = 0;
             xtimer_remove(&dev->timer);
-            _tx_end(dev, NETDEV_EVENT_TX_COMPLETE);
+            _tx_end(dev);
             at86rf215_rf_cmd(dev, CMD_RF_RX);
             break;
         }

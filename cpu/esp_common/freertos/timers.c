@@ -19,28 +19,29 @@
 #include "esp_common.h"
 #include "esp_attr.h"
 #include "log.h"
-#include "xtimer.h"
+#include "ztimer.h"
+#include "timex.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 
 typedef struct {
-    xtimer_t    xtimer;         /* xtimer object */
+    ztimer_t    ztimer;         /* ztimer object */
     const char* name;           /* FreeRTOS timer name */
     uint32_t    period;         /* in us */
     bool        autoreload;     /* FreeRTOS timer reload indicator */
     const void* timerid;        /* FreeRTOS timer id */
     TimerCallbackFunction_t cb; /* FreeRTOS callback function */
-} freertos_xtimer_t;
+} freertos_ztimer_t;
 
-static void IRAM_ATTR _xtimer_callback (void *arg)
+static void IRAM_ATTR _ztimer_callback (void *arg)
 {
     assert(arg != NULL);
 
-    freertos_xtimer_t* timer = (freertos_xtimer_t*)arg;
+    freertos_ztimer_t* timer = (freertos_ztimer_t*)arg;
 
     if (timer->autoreload) {
-        xtimer_set(&timer->xtimer, timer->period);
+        ztimer_set(ZTIMER_MSEC, &timer->ztimer, timer->period);
     }
 
     if (timer->cb) {
@@ -54,33 +55,34 @@ TimerHandle_t xTimerCreate (const char * const pcTimerName,
                             void * const pvTimerID,
                             TimerCallbackFunction_t pxCallbackFunction)
 {
-    freertos_xtimer_t* timer = malloc(sizeof(freertos_xtimer_t));
+    freertos_ztimer_t* timer = malloc(sizeof(freertos_ztimer_t));
     if (timer == NULL) {
         return NULL;
     }
 
     /* FreeRTOS timer parameter */
     timer->name = pcTimerName;
-    timer->period = xTimerPeriod * portTICK_PERIOD_MS * USEC_PER_MSEC;
+    timer->period = xTimerPeriod * portTICK_PERIOD_MS;
     timer->autoreload = uxAutoReload;
     timer->timerid = pvTimerID;
     timer->cb = pxCallbackFunction;
 
-    /* xtimer parameter */
-    timer->xtimer.callback = _xtimer_callback;
-    timer->xtimer.arg = timer;
+    /* ztimer parameter */
+    timer->ztimer.callback = _ztimer_callback;
+    timer->ztimer.arg = timer;
 
-    DEBUG("%s %p %s %d %u\n", __func__, timer, pcTimerName, xTimerPeriod, uxAutoReload);
+    DEBUG("%s %p %s %"PRIu32" %u\n",
+          __func__, timer, pcTimerName, xTimerPeriod, uxAutoReload);
     return timer;
 }
 
 BaseType_t xTimerDelete(TimerHandle_t xTimer, TickType_t xBlockTime)
 {
-    DEBUG("%s %p %d\n", __func__, xTimer, xBlockTime);
+    DEBUG("%s %p %"PRIu32"\n", __func__, xTimer, xBlockTime);
     assert(xTimer != NULL);
 
-    freertos_xtimer_t* timer = (freertos_xtimer_t*)xTimer;
-    xtimer_remove(&timer->xtimer);
+    freertos_ztimer_t* timer = (freertos_ztimer_t*)xTimer;
+    ztimer_remove(ZTIMER_MSEC, &timer->ztimer);
     free(timer);
 
     return pdTRUE;
@@ -88,33 +90,33 @@ BaseType_t xTimerDelete(TimerHandle_t xTimer, TickType_t xBlockTime)
 
 BaseType_t xTimerStart (TimerHandle_t xTimer, TickType_t xBlockTime)
 {
-    DEBUG("%s %p %d\n", __func__, xTimer, xBlockTime);
+    DEBUG("%s %p %"PRIu32"\n", __func__, xTimer, xBlockTime);
     assert(xTimer != NULL);
 
-    freertos_xtimer_t* timer = (freertos_xtimer_t*)xTimer;
-    xtimer_set(&timer->xtimer, timer->period);
+    freertos_ztimer_t* timer = (freertos_ztimer_t*)xTimer;
+    ztimer_set(ZTIMER_MSEC, &timer->ztimer, timer->period);
 
     return pdTRUE;
 }
 
 BaseType_t xTimerStop  (TimerHandle_t xTimer, TickType_t xBlockTime)
 {
-    DEBUG("%s %p %d\n", __func__, xTimer, xBlockTime);
+    DEBUG("%s %p %"PRIu32"\n", __func__, xTimer, xBlockTime);
     assert(xTimer != NULL);
 
-    freertos_xtimer_t* timer = (freertos_xtimer_t*)xTimer;
-    xtimer_remove(&timer->xtimer);
+    freertos_ztimer_t* timer = (freertos_ztimer_t*)xTimer;
+    ztimer_remove(ZTIMER_MSEC, &timer->ztimer);
 
     return pdTRUE;
 }
 
 BaseType_t xTimerReset (TimerHandle_t xTimer, TickType_t xBlockTime)
 {
-    DEBUG("%s %p %d\n", __func__, xTimer, xBlockTime);
+    DEBUG("%s %p %"PRIu32"\n", __func__, xTimer, xBlockTime);
     assert(xTimer != NULL);
 
-    freertos_xtimer_t* timer = (freertos_xtimer_t*)xTimer;
-    xtimer_set(&timer->xtimer, xBlockTime * portTICK_PERIOD_MS * USEC_PER_MSEC);
+    freertos_ztimer_t* timer = (freertos_ztimer_t*)xTimer;
+    ztimer_set(ZTIMER_MSEC, &timer->ztimer, xBlockTime * portTICK_PERIOD_MS * US_PER_MS);
 
     return pdTRUE;
 }
@@ -123,7 +125,7 @@ void *pvTimerGetTimerID(const TimerHandle_t xTimer)
 {
     assert(xTimer != NULL);
 
-    freertos_xtimer_t* timer = (freertos_xtimer_t*)xTimer;
+    freertos_ztimer_t* timer = (freertos_ztimer_t*)xTimer;
     return (void*)timer->timerid;
 }
 

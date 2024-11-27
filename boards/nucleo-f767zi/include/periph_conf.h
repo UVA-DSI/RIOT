@@ -135,7 +135,7 @@ static const spi_conf_t spi_config[] = {
 #endif
         .miso_pin = GPIO_PIN(PORT_A, 6),
         .sclk_pin = GPIO_PIN(PORT_A, 5),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .mosi_af  = GPIO_AF5,
         .miso_af  = GPIO_AF5,
         .sclk_af  = GPIO_AF5,
@@ -148,7 +148,7 @@ static const spi_conf_t spi_config[] = {
         .mosi_pin = GPIO_PIN(PORT_E, 6),
         .miso_pin = GPIO_PIN(PORT_E, 5),
         .sclk_pin = GPIO_PIN(PORT_E, 2),
-        .cs_pin   = GPIO_UNDEF,
+        .cs_pin   = SPI_CS_UNDEF,
         .mosi_af  = GPIO_AF5,
         .miso_af  = GPIO_AF5,
         .sclk_af  = GPIO_AF5,
@@ -193,20 +193,59 @@ static const eth_conf_t eth_config = {
  * Note that we do not configure all ADC channels,
  * and not in the STM32F767ZI order.  Instead, we
  * just define 6 ADC channels, for the Nucleo
- * Arduino header pins A0-A5
+ * Arduino header pins A0-A5 and the internal VBAT channel.
  *
  * @{
  */
 static const adc_conf_t adc_config[] = {
-        {GPIO_PIN(PORT_A, 3), 0, 0},
-        {GPIO_PIN(PORT_C, 0), 0, 1},
-        {GPIO_PIN(PORT_C, 3), 0, 4},
-        {GPIO_PIN(PORT_F, 3), 0, 8},
-        {GPIO_PIN(PORT_F, 5), 0, 11},
-        {GPIO_PIN(PORT_F, 10), 0, 10},
+    {GPIO_PIN(PORT_A, 3), 2, 3},
+    {GPIO_PIN(PORT_C, 0), 2, 10},
+    {GPIO_PIN(PORT_C, 3), 2, 13},
+    {GPIO_PIN(PORT_F, 3), 2, 9},
+    {GPIO_PIN(PORT_F, 5), 2, 15},
+    {GPIO_PIN(PORT_F, 10), 2, 8},
+    {GPIO_UNDEF, 0, 18}, /* VBAT */
 };
 
+#define VBAT_ADC            ADC_LINE(6) /**< VBAT ADC line */
+#define ADC_CLK_MAX         MHZ(36)     /**< Use a faster than default ADC clock */
 #define ADC_NUMOF           ARRAY_SIZE(adc_config)
+/** @} */
+
+/**
+ * @name    PWM configuration
+ * @{
+ */
+/**
+ * @brief   Actual PWM configuration
+ */
+static const pwm_conf_t pwm_config[] = {
+    {
+        .dev      = TIM1,
+        .rcc_mask = RCC_APB2ENR_TIM1EN,
+        .chan     = { { .pin = GPIO_PIN(PORT_E,  9) /* D6  CN10-4  */, .cc_chan = 0},
+                      { .pin = GPIO_PIN(PORT_E, 11) /* D5  CN10-6  */, .cc_chan = 1},
+                      { .pin = GPIO_PIN(PORT_E, 13) /* D3  CN10-10 */, .cc_chan = 2},
+                      { .pin = GPIO_PIN(PORT_E, 14) /* D38 CN10-28 */, .cc_chan = 3} },
+        .af       = GPIO_AF1,
+        .bus      = APB2
+    },
+    {
+        .dev      = TIM4,
+        .rcc_mask = RCC_APB1ENR_TIM4EN,
+        .chan     = { { .pin = GPIO_PIN(PORT_D, 12) /* D29 CN10-21 */, .cc_chan = 0},
+                      { .pin = GPIO_PIN(PORT_D, 13) /* D28 CN10-19 */, .cc_chan = 1},
+                      { .pin = GPIO_PIN(PORT_D, 14) /* D10  CN7-16 */, .cc_chan = 2},
+                      { .pin = GPIO_PIN(PORT_D, 15) /* D9   CN7-18 */, .cc_chan = 3} },
+        .af       = GPIO_AF2,
+        .bus      = APB1
+    },
+};
+
+/**
+ * @brief   Number of PWM devices
+ */
+#define PWM_NUMOF           ARRAY_SIZE(pwm_config)
 /** @} */
 
 #ifdef __cplusplus

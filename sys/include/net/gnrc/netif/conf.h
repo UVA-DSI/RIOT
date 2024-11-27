@@ -20,8 +20,9 @@
 #ifndef NET_GNRC_NETIF_CONF_H
 #define NET_GNRC_NETIF_CONF_H
 
-#include <kernel_defines.h>
+#include "modules.h"
 
+#include "net/dhcpv6/client.h"
 #include "net/ieee802154.h"
 #include "net/ethernet/hdr.h"
 #include "net/gnrc/ipv6/nib/conf.h"
@@ -69,7 +70,7 @@ extern "C" {
  * @brief       Time in microseconds for when to try send a queued packet at the
  *              latest
  *
- * Set to -1 to deactivate dequeing by timer. For this it has to be ensured that
+ * Set to -1 to deactivate dequeuing by timer. For this it has to be ensured that
  * none of the notifications by the driver are missed!
  *
  * @see         net_gnrc_netif_pktq
@@ -108,10 +109,12 @@ extern "C" {
  *          @ref GNRC_NETIF_IPV6_GROUPS_NUMOF is also large enough to fit the
  *          addresses' solicited nodes multicast addresses.
  *
- * Default: 2 (1 link-local + 1 global address)
+ * Default: 2 (1 link-local + 1 global address) + any additional address via
+ * configuration protocol (e.g. DHCPv6 leases).
  */
 #ifndef CONFIG_GNRC_NETIF_IPV6_ADDRS_NUMOF
-#define CONFIG_GNRC_NETIF_IPV6_ADDRS_NUMOF    (2)
+#define CONFIG_GNRC_NETIF_IPV6_ADDRS_NUMOF    (2 + \
+                                               DHCPV6_CLIENT_ADDRS_NUMOF)
 #endif
 
 /**
@@ -189,6 +192,18 @@ extern "C" {
  */
 #ifndef CONFIG_GNRC_NETIF_NONSTANDARD_6LO_MTU
 #define CONFIG_GNRC_NETIF_NONSTANDARD_6LO_MTU 0
+#endif
+
+/**
+ * @brief   Automatically add 6LoWPAN compression at border router
+ *
+ * When set, 6LoWPAN compression context 0 will be automatically set for the prefix configured by
+ * prefix deligation at the border router.
+ */
+#if !IS_ACTIVE(CONFIG_KCONFIG_USEMODULE_GNRC_NETIF)
+#ifndef CONFIG_GNRC_NETIF_IPV6_BR_AUTO_6CTX
+#define CONFIG_GNRC_NETIF_IPV6_BR_AUTO_6CTX   1
+#endif
 #endif
 
 #ifdef __cplusplus

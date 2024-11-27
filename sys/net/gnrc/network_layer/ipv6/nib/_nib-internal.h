@@ -23,13 +23,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <kernel_defines.h>
 
 #include "bitfield.h"
 #include "evtimer_msg.h"
 #include "sched.h"
 #include "mutex.h"
 #include "net/eui64.h"
+#include "kernel_defines.h"
 #include "net/ipv6/addr.h"
 #ifdef MODULE_GNRC_IPV6
 #include "net/gnrc/ipv6.h"
@@ -180,6 +180,9 @@ typedef struct _nib_onl_entry {
      */
     uint8_t l2addr_len;
 #endif
+#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_QUEUE_PKT) || defined(DOXYGEN)
+    uint8_t pktqueue_len; /**< Number of queued packets (in pktqueue) */
+#endif
 } _nib_onl_entry_t;
 
 /**
@@ -228,8 +231,8 @@ typedef struct {
     ipv6_addr_t addr;               /**< The address of the border router */
     uint32_t version;               /**< last received version of the info of
                                      *   the _nib_abr_entry_t::addr */
-    uint32_t valid_until;           /**< timestamp (in minutes) until which
-                                     *   information is valid */
+    uint32_t valid_until_ms;        /**< timestamp (in ms) until which information is valid
+                                     *   (needs resolution in minutes an 16 bits of them)*/
     evtimer_msg_event_t timeout;    /**< timeout of the information */
     /**
      * @brief   Bitfield marking the prefixes in the NIB's off-link entries
@@ -257,6 +260,51 @@ extern evtimer_msg_t _nib_evtimer;
  * Exposed to be settable by @ref net_gnrc_ipv6_nib_ft.
  */
 extern _nib_dr_entry_t *_prime_def_router;
+
+/**
+ * @brief   Looks up if an event is queued in the event timer
+ *
+ * @param[in] ctx   Context of the event. May be NULL for any event context.
+ * @param[in] type  [Type of the event](@ref net_gnrc_ipv6_nib_msg).
+ *
+ * @return  Milliseconds to the event, if event in queue.
+ * @return  UINT32_MAX, event is not in queue.
+ */
+uint32_t _evtimer_lookup(const void *ctx, uint16_t type);
+
+/**
+ * @brief   Removes an event from the event timer
+ *
+ * @param[in] event Representation of the event.
+ */
+static inline void _evtimer_del(evtimer_msg_event_t *event)
+{
+    evtimer_del(&_nib_evtimer, &event->event);
+}
+
+/**
+ * @brief   Adds an event to the event timer
+ *
+ * @param[in] ctx       The context of the event
+ * @param[in] type      [Type of the event](@ref net_gnrc_ipv6_nib_msg).
+ * @param[in,out] event Representation of the event.
+ * @param[in] offset    Offset in milliseconds to the event.
+ */
+static inline void _evtimer_add(void *ctx, int16_t type,
+                                evtimer_msg_event_t *event, uint32_t offset)
+{
+#ifdef MODULE_GNRC_IPV6
+    kernel_pid_t target_pid = gnrc_ipv6_pid;
+#else
+    kernel_pid_t target_pid = KERNEL_PID_LAST;  /* just for testing */
+#endif
+    _evtimer_del(event);
+    event->event.next = NULL;
+    event->event.offset = offset;
+    event->msg.type = type;
+    event->msg.content.ptr = ctx;
+    evtimer_add_msg(&_nib_evtimer, event, target_pid);
+}
 
 /**
  * @brief   Initializes NIB internally
@@ -349,6 +397,26 @@ _nib_onl_entry_t *_nib_onl_iter(const _nib_onl_entry_t *last);
  * @return  NULL, if there is no such entry.
  */
 _nib_onl_entry_t *_nib_onl_get(const ipv6_addr_t *addr, unsigned iface);
+
+/**
+ * @brief   Gets a node by IPv6 address and interface from the neighbor cache
+ *
+ * @pre     `(addr != NULL)`
+ *
+ * @param[in] addr  The address of a node. Must not be NULL.
+ * @param[in] iface The interface to the node. May be 0 for any interface.
+ *
+ * @return  The Neighbor Cache entry for node with @p addr and @p iface on success.
+ * @return  NULL, if there is no such entry.
+ */
+static inline _nib_onl_entry_t *_nib_onl_nc_get(const ipv6_addr_t *addr, unsigned iface)
+{
+    _nib_onl_entry_t *nce = _nib_onl_get(addr, iface);
+    if (nce && (nce->mode & _NC)) {
+        return nce;
+    }
+    return NULL;
+}
 
 /**
  * @brief   Creates or gets an existing node from the neighbor cache by address
@@ -663,6 +731,16 @@ _nib_offl_entry_t *_nib_pl_add(unsigned iface,
  */
 void _nib_pl_remove(_nib_offl_entry_t *nib_offl);
 
+/**
+ * @brief   Removes a prefix from the prefix list as well as the addresses
+ *          associated with the prefix.
+ *
+ * @param[in,out] nib_offl    An entry.
+ *
+ * Corresponding on-link entry is removed, too.
+ */
+void _nib_offl_remove_prefix(_nib_offl_entry_t *pfx);
+
 #if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ROUTER) || DOXYGEN
 /**
  * @brief   Creates or gets an existing forwarding table entry by its prefix
@@ -703,6 +781,7 @@ static inline _nib_offl_entry_t *_nib_ft_add(const ipv6_addr_t *next_hop,
  */
 static inline void _nib_ft_remove(_nib_offl_entry_t *nib_offl)
 {
+    _evtimer_del(&nib_offl->route_timeout);
     _nib_offl_remove(nib_offl, _FT);
 }
 #endif  /* CONFIG_GNRC_IPV6_NIB_ROUTER */
@@ -764,6 +843,8 @@ _nib_offl_entry_t *_nib_abr_iter_pfx(const _nib_abr_entry_t *abr,
  * @return  NULL, if @p last is the last ABR in the NIB.
  */
 _nib_abr_entry_t *_nib_abr_iter(const _nib_abr_entry_t *last);
+#else
+#define _nib_abr_iter(abr) NULL
 #endif
 
 /**
@@ -794,44 +875,45 @@ void _nib_ft_get(const _nib_offl_entry_t *dst, gnrc_ipv6_nib_ft_t *fte);
 int _nib_get_route(const ipv6_addr_t *dst, gnrc_pktsnip_t *ctx,
                    gnrc_ipv6_nib_ft_t *entry);
 
+#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_QUEUE_PKT) || DOXYGEN
 /**
- * @brief   Looks up if an event is queued in the event timer
+ * @brief Flush the packet queue of a on-link neighbor.
  *
- * @param[in] ctx   Context of the event. May be NULL for any event context.
- * @param[in] type  [Type of the event](@ref net_gnrc_ipv6_nib_msg).
- *
- * @return  Milliseconds to the event, if event in queue.
- * @return  UINT32_MAX, event is not in queue.
+ * @param node neighbor entry to be flushed
  */
-uint32_t _evtimer_lookup(const void *ctx, uint16_t type);
+void _nbr_flush_pktqueue(_nib_onl_entry_t *node);
 
 /**
- * @brief   Adds an event to the event timer
+ * @brief Remove oldest packet from a on-link neighbor's packet queue.
  *
- * @param[in] ctx       The context of the event
- * @param[in] type      [Type of the event](@ref net_gnrc_ipv6_nib_msg).
- * @param[in,out] event Representation of the event.
- * @param[in] offset    Offset in milliseconds to the event.
+ * @param node neighbor entry
+ *
+ * @retval pointer to the packet entry or NULL if the queue is empty
  */
-static inline void _evtimer_add(void *ctx, int16_t type,
-                                evtimer_msg_event_t *event, uint32_t offset)
-{
-#ifdef MODULE_GNRC_IPV6
-    kernel_pid_t target_pid = gnrc_ipv6_pid;
+gnrc_pktqueue_t *_nbr_pop_pkt(_nib_onl_entry_t *node);
+
+/**
+ * @brief Push packet to a on-link neighbor's packet queue.
+ *
+ * If there are already @ref CONFIG_GNRC_IPV6_NIB_NBR_QUEUE_CAP packets queued,
+ * the oldest will be dropped silently.
+ *
+ * @pre Neighbor is INCOMPLETE.
+ *
+ * @param node neighbor entry
+ * @param pkt packet to be pushed
+ */
+void _nbr_push_pkt(_nib_onl_entry_t *node, gnrc_pktqueue_t *pkt);
 #else
-    kernel_pid_t target_pid = KERNEL_PID_LAST;  /* just for testing */
+#define _nbr_flush_pktqueue(node) ((void)node)
+#define _nbr_pop_pkt(node) ((void)node, NULL)
+#define _nbr_push_pkt(node, pkt) ((void)node, (void)pkt)
 #endif
-    evtimer_del((evtimer_t *)(&_nib_evtimer), (evtimer_event_t *)event);
-    event->event.next = NULL;
-    event->event.offset = offset;
-    event->msg.type = type;
-    event->msg.content.ptr = ctx;
-    evtimer_add_msg(&_nib_evtimer, event, target_pid);
-}
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* PRIV_NIB_INTERNAL_H */
-/** @} */
+/** @internal
+ * @} */

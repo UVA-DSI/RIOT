@@ -110,17 +110,18 @@ typedef struct gnrc_pktsnip {
     struct gnrc_pktsnip *next;      /**< next snip in the packet */
     void *data;                     /**< pointer to the data of the snip */
     size_t size;                    /**< the length of the snip in byte */
+    /* end of iolist_t */
+#ifdef MODULE_GNRC_NETERR
+    kernel_pid_t err_sub;           /**< subscriber to errors related to this
+                                     *   packet snip */
+#endif
+    gnrc_nettype_t type;            /**< protocol of the packet snip */
     /**
      * @brief   Counter of threads currently having control over this packet.
      *
      * @internal
      */
-    unsigned int users;
-    gnrc_nettype_t type;            /**< protocol of the packet snip */
-#ifdef MODULE_GNRC_NETERR
-    kernel_pid_t err_sub;           /**< subscriber to errors related to this
-                                     *   packet snip */
-#endif
+    uint8_t users;
 } gnrc_pktsnip_t;
 
 /**
@@ -210,12 +211,27 @@ static inline gnrc_pktsnip_t *gnrc_pkt_prepend(gnrc_pktsnip_t *pkt,
 static inline gnrc_pktsnip_t *gnrc_pkt_delete(gnrc_pktsnip_t *pkt,
                                               gnrc_pktsnip_t *snip)
 {
-    list_node_t list = { .next = (list_node_t *)pkt };
+    /* Removing head is a no-op. The new head is the next in the list. */
+    if (pkt == snip) {
+        return pkt->next;
+    }
 
-    list_remove(&list, (list_node_t *)snip);
-    return (gnrc_pktsnip_t *)list.next;
+    /* Removing nothing is a no-op, the new head is the old one */
+    if (snip == NULL) {
+        return pkt;
+    }
+
+    /* Iterate over the list and remove the given snip from it, if found.
+     * The new head is the old head. */
+    for (gnrc_pktsnip_t *i = pkt; i != NULL; i = i->next) {
+        if (i->next == snip) {
+            i->next = snip->next;
+            return pkt;
+        }
+    }
+
+    return pkt;
 }
-
 
 /**
  * @brief Calculates length of a packet in byte up to (including) a snip with the given type.

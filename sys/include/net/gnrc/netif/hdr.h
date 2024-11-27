@@ -29,6 +29,7 @@
 #include "net/gnrc/pkt.h"
 #include "net/gnrc/pktbuf.h"
 #include "net/gnrc/netif.h"
+#include "time_units.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -216,7 +217,6 @@ static inline void gnrc_netif_hdr_set_src_addr(gnrc_netif_hdr_t *hdr,
 
     memcpy(((uint8_t *)(hdr + 1)), addr, addr_len);
 }
-
 
 /**
  * @brief   Get the destination address from the given header

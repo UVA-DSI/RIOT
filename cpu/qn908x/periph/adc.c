@@ -41,7 +41,7 @@
 #include "bitarithm.h"
 #include "cpu.h"
 #include "mutex.h"
-#include "xtimer.h"
+#include "ztimer.h"
 
 #include "gpio_mux.h"
 #include "periph/adc.h"
@@ -123,7 +123,6 @@ static uint32_t _adc_bandgap_calib_mv(void) {
 /* Mask to and against the adc_conf_t to get the channel enum value. */
 #define ADC_CONF_T_CHANNEL_MASK (0x1fu << 9u)
 
-
 int adc_init(adc_t line)
 {
     if (line >= ADC_NUMOF) {
@@ -143,7 +142,7 @@ int adc_init(adc_t line)
         /* Need to wait 100 us before the ADC can be used for sampling. We could
          * in theory avoid this wait since it is only needed before adc_sample()
          * is called but it is short enough that it is safer to include it. */
-        xtimer_usleep(100u);
+        ztimer_sleep(ZTIMER_USEC, 100u);
 
         /* Enable the ADC clock so we can use the ADC. */
         CLOCK_EnableClock(kCLOCK_Adc);
@@ -279,7 +278,7 @@ int32_t adc_sample(adc_t line, adc_res_t res) {
         ADC_CFG_SCAN_INTV(4); /* Switching ADC source every 32 clock cycles. */
 
     /* Need to wait for one ADC cycle before it can be started. */
-    xtimer_usleep(adc_clock_cycle_us[QN908X_ADC_CLOCK]);
+    ztimer_sleep(ZTIMER_USEC, adc_clock_cycle_us[QN908X_ADC_CLOCK]);
 
     /* Configure the destination of the ADC value read from the interrupt. */
     volatile int32_t adc_data = 0;

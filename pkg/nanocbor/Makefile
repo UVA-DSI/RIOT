@@ -1,6 +1,6 @@
 PKG_NAME    = nanocbor
 PKG_URL     = https://github.com/bergzand/nanocbor
-PKG_VERSION = 7728af0633a8d9d119c9b36a5c5a441e11e75ff1
+PKG_VERSION = 3e3700488b0cdd43b72e686260541484e7862d43
 PKG_LICENSE = CC-0
 
 include $(RIOTBASE)/pkg/pkg.mk
